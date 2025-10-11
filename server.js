@@ -6,9 +6,9 @@ import fs from "fs";
 const app = express();
 app.use(express.json());
 
-// 🧩 إعداد المتغيرات
+// 🔐 مفاتيح البيئة
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL; // مثال: eselect.myshopify.com
+const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL; // مثل: eselect.myshopify.com
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
@@ -16,7 +16,7 @@ const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 const collections = JSON.parse(fs.readFileSync("./collections.json", "utf-8"));
 const DEFAULT_COLLECTION = "منتجات متنوعة";
 
-// 🔤 دالة لتوليد handle بالإنجليزية القصيرة
+// 🔤 دالة لتوليد handle قصير بالإنجليزية
 function toEnglishHandle(text) {
   return text
     .replace(/[^a-zA-Z0-9\s]/g, "")
@@ -25,75 +25,84 @@ function toEnglishHandle(text) {
     .substring(0, 60);
 }
 
-// 🔁 دالة معالجة المنتج (تُستخدم في الإنشاء والتحديث)
+// 🧼 دالة تنظيف النصوص
+function clean(str) {
+  if (!str) return "";
+  return str
+    .replace(/<[^>]*>/g, "") // إزالة HTML
+    .replace(/[*#":]/g, "") // إزالة رموز
+    .replace(/\s{2,}/g, " ") // مسافات زائدة
+    .trim();
+}
+
+// 🧠 معالجة المنتج (إنشاء أو تحديث)
 async function processProduct(product, source = "create") {
   const { id, title, body_html, variants } = product;
   console.log(`⚙️ [${source.toUpperCase()}] معالجة المنتج: ${title} | ID: ${id}`);
 
-  // === إنشاء البرومبت الذكي ===
   const prompt = `
-أنت كاتب محتوى تسويقي عربي محترف متخصص في منتجات المتاجر الإلكترونية.
-أعد كتابة وصف المنتج أدناه بأسلوب تسويقي HTML أنيق يشمل:
-1. عنوان فرعي جذاب.
-2. فقرة مقدمة.
-3. قائمة مميزات ✅.
-4. فقرة "لماذا نوصي به" 🔹.
-5. قائمة المواصفات ⚙️.
-6. فقرة "محتويات العبوة" 📦 إن توفرت.
-7. توليد Page title و Meta description و URL handle بالإنجليزية القصيرة (SEO-ready).
-8. نوع المنتج بالعربية.
-9. كلمات مفتاحية بالعربية (tags).
+أنت خبير تسويق إلكتروني محترف. أعد كتابة وصف المنتج أدناه بالعربية بتنسيق HTML أنيق يشمل:
+1. مقدمة جذابة.
+2. قسم "مواصفات المنتج" مع نقاط ✅.
+3. قسم "محتويات العبوة" 📦.
+4. نوع المنتج بالعربية.
+5. وسوم (كلمات مفتاحية) بالعربية.
+6. Page title و Meta description بالعربية.
+7. توليد URL handle بالإنجليزية.
 
-المنتج:
 العنوان: ${title}
-الوصف: ${body_html}
-الخيارات (Variants): ${JSON.stringify(variants || [])}
+الوصف الأصلي: ${body_html}
+الخيارات: ${JSON.stringify(variants || [])}
 `;
 
-  // === طلب GPT ===
-  const completion = await client.chat.completions.create({
-    model: "gpt-4-turbo",
-    messages: [
-      { role: "system", content: "أنت خبير تسويق إلكتروني محترف." },
-      { role: "user", content: prompt },
-    ],
-  });
-
-  const responseText = completion.choices[0].message.content;
-  console.log("🧠 مخرجات GPT:\n", responseText);
-
-  // === استخراج القيم ===
-  const htmlMatch = responseText.match(/```html([\s\S]*?)```/);
-  const newDescription = htmlMatch ? htmlMatch[1].trim() : body_html;
-
-  const typeMatch = responseText.match(/نوع المنتج.*?:\s*(.*)/);
-  const newType = typeMatch ? typeMatch[1].trim() : "منتجات متنوعة";
-
-  const tagsMatch = responseText.match(/(?:الكلمات المفتاحية|Tags).*?:\s*(.*)/);
-  const newTags = tagsMatch ? tagsMatch[1].replace(/[",]/g, "") : "";
-
-  const seoTitleMatch = responseText.match(/Page title.*?:\s*(.*)/);
-  const pageTitle = seoTitleMatch ? seoTitleMatch[1].trim() : title;
-
-  const metaDescMatch = responseText.match(/(?:وصف SEO|Meta description).*?:\s*(.*)/);
-  const metaDescription = metaDescMatch ? metaDescMatch[1].trim() : title;
-
-  const urlMatch = responseText.match(/URL.*?[:：]\s*(?:`|\/)?([a-zA-Z0-9\-]+)/);
-  const handle = urlMatch ? urlMatch[1].toLowerCase() : toEnglishHandle(title);
-
-  // === تحديد الكولكشن الأنسب ===
-  let selectedCollection = DEFAULT_COLLECTION;
-  for (const c of collections) {
-    if (title.includes(c.split(" ")[0]) || body_html.includes(c.split(" ")[0])) {
-      selectedCollection = c;
-      break;
-    }
-  }
-  console.log(`📂 الكولكشن المختار: ${selectedCollection}`);
-
-  // === تحديث المنتج في Shopify ===
   try {
-    const response = await axios.put(
+    // === طلب GPT ===
+    const completion = await client.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: [
+        { role: "system", content: "أنت كاتب محتوى تسويقي محترف للمنتجات العربية." },
+        { role: "user", content: prompt },
+      ],
+    });
+
+    const responseText = completion.choices[0].message.content;
+    console.log("🧠 استجابة GPT:\n", responseText);
+
+    // === استخراج الحقول ===
+    const htmlMatch = responseText.match(/```html([\s\S]*?)```/);
+    let newDescription = htmlMatch ? htmlMatch[1].trim() : body_html;
+    newDescription = `
+<div dir="rtl" style="font-family:'Tajawal',sans-serif;line-height:1.8;">
+${newDescription}
+</div>`;
+
+    const typeMatch = responseText.match(/نوع المنتج.*?:\s*(.*)/);
+    const newType = clean(typeMatch ? typeMatch[1] : "منتجات متنوعة");
+
+    const tagsMatch = responseText.match(/(?:الكلمات المفتاحية|Tags).*?:\s*(.*)/);
+    const newTags = clean(tagsMatch ? tagsMatch[1] : "");
+
+    const seoTitleMatch = responseText.match(/Page title.*?:\s*(.*)/);
+    const pageTitle = clean(seoTitleMatch ? seoTitleMatch[1] : title);
+
+    const metaDescMatch = responseText.match(/(?:وصف SEO|Meta description).*?:\s*(.*)/);
+    const metaDescription = clean(metaDescMatch ? metaDescMatch[1] : title);
+
+    const urlMatch = responseText.match(/URL.*?[:：]\s*(?:`|\/)?([a-zA-Z0-9\-]+)/);
+    const handle = urlMatch ? urlMatch[1].toLowerCase() : toEnglishHandle(title);
+
+    // === تحديد الكولكشن المناسب ===
+    let selectedCollection = DEFAULT_COLLECTION;
+    for (const c of collections) {
+      if (title.includes(c.split(" ")[0]) || body_html.includes(c.split(" ")[0])) {
+        selectedCollection = c;
+        break;
+      }
+    }
+    console.log(`📂 الكولكشن المختار: ${selectedCollection}`);
+
+    // === تحديث المنتج في Shopify ===
+    const updateResponse = await axios.put(
       `https://${SHOPIFY_STORE_URL}/admin/api/2024-10/products/${id}.json`,
       {
         product: {
@@ -127,13 +136,9 @@ async function processProduct(product, source = "create") {
       }
     );
 
-    console.log(`✅ تم تحديث المنتج بنجاح (${response.status})`);
-  } catch (err) {
-    console.error("❌ خطأ أثناء تحديث المنتج:", err.response?.data || err.message);
-  }
+    console.log(`✅ تم تحديث المنتج بنجاح (${updateResponse.status})`);
 
-  // === إضافة إلى الكولكشن ===
-  try {
+    // === إضافة المنتج إلى الكولكشن ===
     const collectionsRes = await axios.get(
       `https://${SHOPIFY_STORE_URL}/admin/api/2024-10/custom_collections.json`,
       { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } }
@@ -143,45 +148,45 @@ async function processProduct(product, source = "create") {
     );
 
     if (found) {
-      await axios.post(
-        `https://${SHOPIFY_STORE_URL}/admin/api/2024-10/collects.json`,
-        { collect: { product_id: id, collection_id: found.id } },
+      const collectsRes = await axios.get(
+        `https://${SHOPIFY_STORE_URL}/admin/api/2024-10/collects.json?product_id=${id}`,
         { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } }
       );
-      console.log(`✅ تمت إضافة المنتج إلى الكولكشن: ${selectedCollection}`);
+      const alreadyInCollection = collectsRes.data.collects.some(
+        (c) => c.collection_id === found.id
+      );
+
+      if (!alreadyInCollection) {
+        await axios.post(
+          `https://${SHOPIFY_STORE_URL}/admin/api/2024-10/collects.json`,
+          { collect: { product_id: id, collection_id: found.id } },
+          { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } }
+        );
+        console.log(`✅ تمت إضافة المنتج إلى الكولكشن: ${selectedCollection}`);
+      } else {
+        console.log(`ℹ️ المنتج موجود مسبقًا في الكولكشن: ${selectedCollection}`);
+      }
     } else {
       console.log(`⚠️ لم يتم العثور على الكولكشن: ${selectedCollection}`);
     }
   } catch (err) {
-    console.error("⚠️ خطأ في عملية إضافة الكولكشن:", err.response?.data || err.message);
+    console.error("❌ خطأ أثناء المعالجة:", err.response?.data || err.message);
   }
 }
 
-// ✅ Webhook عند إنشاء المنتج
+// ✅ Webhooks
 app.post("/webhook/product-created", async (req, res) => {
-  try {
-    await processProduct(req.body, "create");
-    res.status(200).send("✅ تم معالجة المنتج الجديد");
-  } catch (err) {
-    console.error("❌ خطأ في إنشاء المنتج:", err.message);
-    res.status(500).send("خطأ في معالجة المنتج الجديد");
-  }
+  await processProduct(req.body, "create");
+  res.status(200).send("✅ تم معالجة المنتج الجديد");
 });
 
-// ✅ Webhook عند تحديث المنتج
 app.post("/webhook/product-updated", async (req, res) => {
-  try {
-    await processProduct(req.body, "update");
-    res.status(200).send("♻️ تم إعادة ترجمة وتحديث المنتج");
-  } catch (err) {
-    console.error("❌ خطأ في تحديث المنتج:", err.message);
-    res.status(500).send("خطأ في معالجة تحديث المنتج");
-  }
+  await processProduct(req.body, "update");
+  res.status(200).send("♻️ تم إعادة تحسين المنتج المحدث");
 });
 
-// صفحة اختبار
 app.get("/", (req, res) => {
-  res.send("🚀 eSelect AI Translator v2.7 | Webhooks: Create + Update");
+  res.send("🚀 eSelect AI Translator v2.8 | Clean & Safe Update");
 });
 
 const PORT = process.env.PORT || 3000;
