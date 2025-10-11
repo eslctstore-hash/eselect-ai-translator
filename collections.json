@@ -1,21 +1,202 @@
 [
-  { "title": "الجوالات والإكسسوارات", "keywords": ["جوال", "هاتف", "موبايل", "إكسسوارات", "غطاء", "حماية"] },
-  { "title": "السماعات والأجهزة الصوتية", "keywords": ["سماعة", "بلوتوث", "صوت", "موسيقى", "إيربودز"] },
-  { "title": "الكاميرات والمراقبة", "keywords": ["كاميرا", "مراقبة", "أمن", "تصوير", "واي فاي"] },
-  { "title": "اللابتوبات والأجهزة المكتبية", "keywords": ["لابتوب", "حاسب", "كمبيوتر", "مكتب", "شاشة"] },
-  { "title": "الساعات الذكية", "keywords": ["ساعة", "ذكية", "Watch", "نبض"] },
-  { "title": "أجهزة الشبكات والواي فاي", "keywords": ["واي فاي", "راوتر", "إشارة", "نت", "مقوي"] },
-  { "title": "ألعاب الفيديو وملحقاتها", "keywords": ["ألعاب", "بلايستيشن", "نينتندو", "Xbox", "جويستك"] },
-  { "title": "شاشات التلفزيون", "keywords": ["تلفزيون", "شاشة", "سمارت", "عرض"] },
-  { "title": "أجهزة المطبخ الذكية", "keywords": ["مطبخ", "قلاية", "مايكرويف", "عصارة", "خلاط"] },
-  { "title": "الحمام والإكسسوارات", "keywords": ["حمام", "دُش", "مناشف", "مغسلة", "صابون"] },
-  { "title": "إكسسوارات السيارات", "keywords": ["سيارة", "إكسسوارات", "مراية", "كفر", "منظف"] },
-  { "title": "خيام وأدوات التخييم", "keywords": ["تخييم", "رحلات", "خيمة", "مصباح", "نار"] },
-  { "title": "العناية الشخصية والجمال", "keywords": ["عناية", "بشرة", "شعر", "جمال", "مكياج"] },
-  { "title": "معدات اللياقة البدنية", "keywords": ["رياضة", "جيم", "لياقة", "تمارين"] },
-  { "title": "ملابس الرجال", "keywords": ["رجال", "قمصان", "بنطال", "تيشيرت"] },
-  { "title": "ملابس النساء", "keywords": ["نساء", "عباية", "فستان", "بلوزة"] },
-  { "title": "ألعاب الأطفال التعليمية", "keywords": ["أطفال", "تعليم", "ذكاء", "مجموعة", "قوس", "سهام"] },
-  { "title": "بطاقات الهدايا", "keywords": ["بطاقة", "هدايا", "شحن", "كارت"] },
-  { "title": "منتجات متنوعة", "keywords": ["منتج", "متنوع", "عشوائي", "اكسسوارات", "اخرى"] }
+  {
+    "title": "الجوالات والإكسسوارات",
+    "keywords": [
+      "جوال","هاتف","موبايل","mobile","smartphone","iphone","android",
+      "سامسونج","هواوي","شاومي","ريلمي","أوبو","نوبيا","فيفو","نوكيا",
+      "غطاء","كفر","حماية","زجاج","شاشة","case","cover","protector","charger","charging","usb-c"
+    ]
+  },
+  {
+    "title": "السماعات والأجهزة الصوتية",
+    "keywords": [
+      "سماعة","earphone","earbud","airpods","headphone","audio","بلوتوث","سماعات","صوت","music","موسيقى","ميكروفون","mic","مكبر","speaker","bass"
+    ]
+  },
+  {
+    "title": "الكاميرات والمراقبة",
+    "keywords": [
+      "كاميرا","camera","ip","ptz","مراقبة","أمنية","security","cctv","lens","عدسة","night vision","infrared","تصوير","wifi camera","webcam","leica"
+    ]
+  },
+  {
+    "title": "اللابتوبات والأجهزة المكتبية",
+    "keywords": [
+      "لابتوب","حاسب","كمبيوتر","laptop","pc","desktop","keyboard","mouse","intel","macbook","notebook","ssd","ram","office","معالج","جهاز مكتبي"
+    ]
+  },
+  {
+    "title": "الساعات الذكية",
+    "keywords": [
+      "ساعة","watch","smartwatch","band","fitbit","apple watch","huawei watch","gear","wearable","ساعة ذكية","نبض","ضغط الدم","health","fitness"
+    ]
+  },
+  {
+    "title": "أجهزة الشبكات والواي فاي",
+    "keywords": [
+      "واي فاي","wifi","راوتر","router","access point","mesh","إشارة","مقوي","network","ethernet","lan","modem","repeater"
+    ]
+  },
+  {
+    "title": "ألعاب الفيديو وملحقاتها",
+    "keywords": [
+      "ألعاب","game","gaming","console","playstation","ps4","ps5","xbox","switch","نينتندو","controller","joystick","gamepad","arcade"
+    ]
+  },
+  {
+    "title": "شاشات التلفزيون",
+    "keywords": [
+      "تلفزيون","شاشة","tv","monitor","display","4k","oled","qled","lcd","led","hdmi","hdr","smart tv","screen"
+    ]
+  },
+  {
+    "title": "أجهزة المطبخ الذكية",
+    "keywords": [
+      "مطبخ","ذكي","قلاية","air fryer","مايكرويف","microwave","عصارة","خلاط","blender","غلاية","kettle","آلة قهوة","coffee maker","محضر طعام","فرن","oven"
+    ]
+  },
+  {
+    "title": "الإضاءة الذكية",
+    "keywords": [
+      "إضاءة","light","led","smart light","bulb","مصباح","لمبة","rgb","إضاءة ذكية","اضاءات","lamp","ضوء"
+    ]
+  },
+  {
+    "title": "أدوات المطبخ والطهي",
+    "keywords": [
+      "طهي","طبخ","أواني","pots","pans","knife","مقلاة","طنجرة","قدر","spoon","ملعقة","شوكة","كوب","cup","مطبخ","utensils"
+    ]
+  },
+  {
+    "title": "أجهزة المنزل الكهربائية",
+    "keywords": [
+      "غسالة","مكواة","مكنسة","vacuum","electric","home appliance","heater","مروحة","fan","air purifier","dehumidifier","ثلاجة","برادة","مكيف"
+    ]
+  },
+  {
+    "title": "أدوات التنظيف والغسيل",
+    "keywords": [
+      "تنظيف","غسيل","ممسحة","مساحة","clean","vacuum","bucket","ماء","floor cleaner","detergent","brush","spray mop","غسالة"
+    ]
+  },
+  {
+    "title": "ديكور المنزل",
+    "keywords": [
+      "ديكور","decor","لوحة","painting","إطار","شمعة","مزهرية","ستائر","وسادة","pillow","table decor","منزل","سجاد","carpet"
+    ]
+  },
+  {
+    "title": "المفروشات والأثاث",
+    "keywords": [
+      "أثاث","furniture","كرسي","طاولة","sofa","سرير","bed","مرتبة","مكتب","رف","couch","غرفة","مجلس","bean bag"
+    ]
+  },
+  {
+    "title": "العناية الشخصية والجمال",
+    "keywords": [
+      "عناية","بشرة","شعر","جمال","beauty","skin","hair","lotion","كريم","perfume","ماسكات","body care","عطور","makeup","cosmetic"
+    ]
+  },
+  {
+    "title": "الحمام والإكسسوارات",
+    "keywords": [
+      "حمام","bath","toilet","منشفة","صابون","shampoo","shower","ستارة","bathroom","فرشاة","سجادة","مغسلة","dispenser"
+    ]
+  },
+  {
+    "title": "إكسسوارات السيارات",
+    "keywords": [
+      "سيارة","car","accessory","vehicle","parking","مرآة","cover","seat","منظف","معطر","dashboard","auto","حماية","camera","dashcam"
+    ]
+  },
+  {
+    "title": "أدوات الصيانة والتلميع",
+    "keywords": [
+      "صيانة","تلميع","polish","tools","عدة","مفك","wrench","برغي","معدات","drill","مطرقة","cleaner","auto care","car wax"
+    ]
+  },
+  {
+    "title": "الكاميرات الأمامية والخلفية",
+    "keywords": [
+      "dashcam","كاميرا سيارة","خلفية","أمامية","parking camera","rear cam","front cam","driving recorder","backup cam","car camera"
+    ]
+  },
+  {
+    "title": "حافظات الجوال للسيارة",
+    "keywords": [
+      "حامل","stand","car mount","mobile holder","dashboard mount","magnetic holder","air vent","phone holder","car bracket"
+    ]
+  },
+  {
+    "title": "الشواحن والمشغلات",
+    "keywords": [
+      "شاحن","charger","power bank","cable","usb","wireless charger","baseus","anker","adapter","car charger","plug","شحن","مشغل","محول"
+    ]
+  },
+  {
+    "title": "العطور والمعطرات للسيارات",
+    "keywords": [
+      "عطر","معطر","car perfume","car freshener","روائح","فواحة","بخور","fragrance","wood scent","spray","auto fresh"
+    ]
+  },
+  {
+    "title": "خيام وأدوات التخييم",
+    "keywords": [
+      "خيمة","تخييم","camping","tent","outdoor","رحلة","camp","sleeping bag","كشاف","lantern","tools","رحلات"
+    ]
+  },
+  {
+    "title": "معدات اللياقة البدنية",
+    "keywords": [
+      "رياضة","لياقة","fit","gym","جهاز رياضي","fitness","exercise","treadmill","أثقال","weights","دراجة","بطن","pushup","home gym"
+    ]
+  },
+  {
+    "title": "ملابس الرجال",
+    "keywords": [
+      "رجالي","رجال","men","shirt","t-shirt","بنطال","سروال","عمان","hoodie","jacket","عباية رجالية","thobe","دشداشة"
+    ]
+  },
+  {
+    "title": "ملابس النساء",
+    "keywords": [
+      "نساء","نسائي","women","ladies","فستان","عباية","بلوزة","تنورة","dress","جلابية","طرحة","عبايات","abaya"
+    ]
+  },
+  {
+    "title": "ملابس الأطفال",
+    "keywords": [
+      "أطفال","baby","kids","طفل","ملابس اطفال","بنت","ولد","قميص","bodysuit","toddler","infant","ملابس مواليد"
+    ]
+  },
+  {
+    "title": "ألعاب الأطفال التعليمية",
+    "keywords": [
+      "ألعاب","تعليم","تعليمية","toy","kids toy","learning","ذكاء","puzzle","مجموعة لعب","أطفال","تركيب","تعلم","building blocks","lego"
+    ]
+  },
+  {
+    "title": "المكياج",
+    "keywords": [
+      "مكياج","makeup","foundation","lipstick","eyeliner","mascara","blush","cosmetic","palette","ظل","روج","ماسكارا"
+    ]
+  },
+  {
+    "title": "العطور",
+    "keywords": [
+      "عطر","perfume","fragrance","scent","eau de parfum","spray","بخور","عطورات","دهن عود","عود","مسك","مخلط","مسك الطهارة"
+    ]
+  },
+  {
+    "title": "العناية بالبشرة",
+    "keywords": [
+      "بشرة","skin","مرطب","lotion","كريم","serum","غسول","toner","mask","واقي شمس","مقشر","تفتيح","ترطيب","نضارة"
+    ]
+  },
+  {
+    "title": "منتجات متنوعة",
+    "keywords": [
+      "منتج","متنوع","other","misc","general","item","accessory","gadget","tool","collection","unknown","various"
+    ]
+  }
 ]
