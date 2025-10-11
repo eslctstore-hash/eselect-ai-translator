@@ -4,6 +4,15 @@
  * إعداد: سالم السليمي | https://eselect.store
  */
 
+// ✅ إنشاء مجلد logs تلقائيًا إن لم يكن موجود
+const logDir = "./logs";
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir, { recursive: true });
+  console.log("📁 Created missing logs directory automatically");
+}
+
+
+
 import express from "express";
 import axios from "axios";
 import bodyParser from "body-parser";
