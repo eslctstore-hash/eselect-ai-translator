@@ -1,45 +1,51 @@
+// ================== eSelect AI Translator Server ==================
+// إعداد السيرفر المتكامل لترجمة وتحسين المنتجات تلقائيًا
+// الإصدار: 3.5.0 — 11/10/2025
+
 import express from "express";
-import fs from "fs";
 import axios from "axios";
+import fs from "fs";
+import path from "path";
 import dotenv from "dotenv";
 dotenv.config();
 
+// ================== إعداد المتغيرات ==================
 const app = express();
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// ================== الإعدادات ==================
 const PORT = process.env.PORT || 3000;
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
+const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL; // https://eselect.store/admin/api
 
-// ================== تحميل بيانات التشكيلات ==================
-let collectionsMap = {};
-try {
-  const path = new URL("./collections-lite.json", import.meta.url);
-  const json = fs.readFileSync(path, "utf-8");
-  collectionsMap = JSON.parse(json);
-  console.log("✅ تم تحميل ملف التشكيلات بنجاح.");
-} catch (err) {
-  console.error("⚠️ لم يتم العثور على ملف التشكيلات أو حدث خطأ في قراءته:", err.message);
-  collectionsMap = { "منتجات متنوعة": ["منتج", "منتجات", "items"] };
-}
-
-// ================== دالة تسجيل ==================
+// ================== إعداد السجلات ==================
+const logsDir = "./logs";
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
+const logFile = path.join(logsDir, "actions.log");
 const log = (msg) => {
-  const time = new Date().toISOString();
-  console.log(`${time} | ${msg}`);
+  const entry = `${new Date().toISOString()} | ${msg}\n`;
+  console.log(entry.trim());
+  fs.appendFileSync(logFile, entry);
 };
 
-// ================== الدالة المساعدة لاختيار التشكيلة ==================
-function detectCollection(title, description) {
-  title = (title || "").toLowerCase();
-  description = (description || "").toLowerCase();
+// ================== تحميل تشكيلات المتجر ==================
+let collectionsMap = {};
+try {
+  const collectionsPath = new URL("./collections-lite.json", import.meta.url);
+  const json = fs.readFileSync(collectionsPath, "utf-8");
+  collectionsMap = JSON.parse(json);
+  log("✅ تم تحميل ملف التشكيلات بنجاح.");
+} catch (err) {
+  log("⚠️ لم يتم العثور على ملف التشكيلات، سيتم استخدام تشكيل افتراضي.");
+  collectionsMap = { "منتجات متنوعة": ["default", "various", "misc"] };
+}
 
+// ================== استخراج تشكيل مناسب من العنوان والوصف ==================
+function detectCollection(title = "", description = "") {
+  const combined = (title + " " + description).toLowerCase();
   for (const [collection, keywords] of Object.entries(collectionsMap)) {
     for (const word of keywords) {
-      if (title.includes(word) || description.includes(word)) {
+      if (combined.includes(word.toLowerCase())) {
         return collection;
       }
     }
@@ -47,83 +53,129 @@ function detectCollection(title, description) {
   return "منتجات متنوعة";
 }
 
-// ================== معالجة الفارينتس ==================
-function translateVariants(product) {
-  if (!product.variants) return [];
-
-  return product.variants.map((v) => {
-    const translated = {};
-    Object.keys(v).forEach((key) => {
-      let val = v[key];
-      if (typeof val === "string") {
-        // ترجمة نصوص بسيطة من الإنجليزية إلى العربية بدون تكرار
-        val = val
-          .replace(/color/i, "اللون")
-          .replace(/size/i, "المقاس")
-          .replace(/material/i, "الخامة")
-          .replace(/type/i, "النوع")
-          .replace(/default title/i, "افتراضي");
-      }
-      translated[key] = val;
-    });
-    return translated;
-  });
+// ================== إنشاء Handle متوافق مع SEO ==================
+function generateHandle(title) {
+  return title
+    .toLowerCase()
+    .replace(/[^\u0621-\u064A\w]+/g, "-") // أحرف عربية + إنجليزية + أرقام
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
-// ================== الدالة الرئيسية لتحسين المنتج ==================
+// ================== ترجمة النصوص عبر OpenAI ==================
+async function translateText(text) {
+  try {
+    const prompt = `ترجم النص التالي إلى العربية بلغة تسويقية احترافية بدون علامات ** أو HTML:
+${text}`;
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    return (
+      response.data.choices?.[0]?.message?.content?.trim() ||
+      text ||
+      "منتج رائع يستحق التجربة."
+    );
+  } catch (err) {
+    log("❌ خطأ في الترجمة: " + err.message);
+    return text;
+  }
+}
+
+// ================== ترجمة الفارينتات ==================
+async function translateVariants(variants = []) {
+  const translated = [];
+  for (const v of variants) {
+    const newV = { ...v };
+    for (const key of Object.keys(newV)) {
+      if (typeof newV[key] === "string") {
+        newV[key] = await translateText(newV[key]);
+      }
+    }
+    translated.push(newV);
+  }
+  return translated;
+}
+
+// ================== تحسين المنتج ==================
 async function improveProduct(product, eventType) {
   try {
     const title = product.title || "";
     const description = product.body_html || "";
-    const collection = detectCollection(title, description);
 
-    // ترجم الفارينتس عند الإنشاء فقط
-    const translatedVariants = eventType === "create" ? translateVariants(product) : product.variants;
+    log(`🧠 تحسين المنتج: ${title}`);
 
-    const seoDesc = description.slice(0, 250).replace(/<[^>]+>/g, "").trim();
-    const seoTitle = title.slice(0, 70);
-    const urlHandle = title
-      .toLowerCase()
-      .replace(/[^a-zA-Z0-9أ-ي]+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
+    // ترجمة العنوان والوصف فقط عند الإنشاء
+    const translatedTitle =
+      eventType === "create" ? await translateText(title) : title;
+    const translatedDescription =
+      eventType === "create"
+        ? await translateText(description)
+        : description.replace(/^(\s*الوصف:|\s*عنوان:)?/gi, "").trim();
 
-    const updated = {
+    // ترجمة الفارينتس عند الإنشاء فقط
+    const translatedVariants =
+      eventType === "create"
+        ? await translateVariants(product.variants)
+        : product.variants;
+
+    // تحديد التشكيلة
+    const collection = detectCollection(translatedTitle, translatedDescription);
+
+    // SEO Title & Description
+    const seoTitle = translatedTitle.slice(0, 70);
+    const seoDesc = translatedDescription.replace(/<[^>]*>/g, "").slice(0, 250);
+
+    // URL Handle
+    const handle = generateHandle(title);
+
+    // تحديث المنتج في Shopify
+    const updateBody = {
       product: {
-        title,
-        body_html: description.replace(/^(\s*الوصف:|\s*عنوان:)?/gi, "").trim(),
+        id: product.id,
+        title: translatedTitle,
+        body_html: translatedDescription,
+        handle,
+        tags: [collection],
         variants: translatedVariants,
-        handle: urlHandle,
         metafields: [
           {
-            key: "collection_detected",
             namespace: "custom",
+            key: "collection_detected",
             value: collection,
-            type: "single_line_text_field"
-          }
+            type: "single_line_text_field",
+          },
         ],
-        tags: [collection],
         seo: {
           title: seoTitle,
-          description: seoDesc
-        }
-      }
+          description: seoDesc,
+        },
+      },
     };
 
-    const res = await axios.put(
+    await axios.put(
       `${SHOPIFY_STORE_URL}/admin/api/2024-07/products/${product.id}.json`,
-      updated,
+      updateBody,
       {
         headers: {
           "Content-Type": "application/json",
-          "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN
-        }
+          "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        },
       }
     );
 
-    log(`✅ تم تحسين المنتج ${product.title} ووضعه في كولكشن: ${collection}`);
+    log(`✅ تم تحسين المنتج "${translatedTitle}" وإضافته إلى ${collection}`);
   } catch (err) {
-    console.error("❌ خطأ أثناء تحسين المنتج:", err.response?.data || err.message);
+    log("❌ خطأ أثناء تحسين المنتج: " + (err.response?.data || err.message));
   }
 }
 
@@ -131,20 +183,28 @@ async function improveProduct(product, eventType) {
 app.post("/webhook", async (req, res) => {
   try {
     const product = req.body;
-    const eventType = product?.id ? "update" : "create";
-    log(`${eventType === "create" ? "🆕" : "♻️"} منتج جديد/محدث: ${product.title}`);
+    const eventType = req.headers["x-shopify-topic"]?.includes("create")
+      ? "create"
+      : "update";
+
+    log(
+      `${eventType === "create" ? "🆕" : "♻️"} حدث منتج (${
+        product.title
+      }) من Shopify`
+    );
+
     await improveProduct(product, eventType);
     res.sendStatus(200);
   } catch (err) {
-    console.error("Webhook Error:", err.message);
+    log("❌ Webhook Error: " + err.message);
     res.sendStatus(500);
   }
 });
 
-// ================== اختبار ==================
+// ================== نقطة فحص ==================
 app.get("/", (req, res) => {
-  res.send("🚀 eSelect AI Translator Running Smoothly");
+  res.send("🚀 eSelect AI Translator is running perfectly on Render.");
 });
 
 // ================== تشغيل السيرفر ==================
-app.listen(PORT, () => log(`✅ Server running on port ${PORT}`));
+app.listen(PORT, () => log(`✅ Server started successfully on port ${PORT}`));
