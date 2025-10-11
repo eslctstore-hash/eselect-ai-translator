@@ -1,8 +1,7 @@
 /**
  * eSelect | إي سيلكت
- * Shopify Smart Arabic Optimizer v2.9
- * مطور خصيصًا لسالم السليمي - متجر eselect.store
- * يقوم بالترجمة، التحسين، وتوزيع المنتجات تلقائياً حسب الفئة.
+ * Shopify Smart Arabic Optimizer v3.0 (Text Edition)
+ * إعداد: سالم السليمي | eselect.store
  */
 
 import express from "express";
@@ -21,7 +20,7 @@ const SHOPIFY_STORE = "eselect.store";
 
 const collections = JSON.parse(fs.readFileSync("./collections.json", "utf-8"));
 
-// ✅ أدوات مساعدة
+// ✳️ أدوات مساعدة
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function cleanHandle(title) {
@@ -33,75 +32,84 @@ function cleanHandle(title) {
     .substring(0, 60);
 }
 
-// ✅ تحديد الكولكشن الأنسب
-function detectCollection(title, description) {
+// ✅ اختيار الكولكشن الذكي (بوزن الكلمات)
+function detectCollectionWeighted(title, description) {
   let bestMatch = "منتجات متنوعة";
   let bestScore = 0;
 
   for (const c of collections) {
-    const keywords = c.keywords.join(" ");
-    const text = `${title} ${description}`;
-    const matches = keywords.split(" ").filter((k) =>
-      text.includes(k)
-    ).length;
-
-    if (matches > bestScore) {
-      bestScore = matches;
+    let score = 0;
+    for (const k of c.keywords) {
+      const regex = new RegExp(k, "i");
+      if (regex.test(title)) score += 3;
+      else if (regex.test(description)) score += 1;
+    }
+    if (score > bestScore) {
+      bestScore = score;
       bestMatch = c.title;
     }
   }
 
-  return bestMatch || "منتجات متنوعة";
+  return bestScore >= 2 ? bestMatch : "منتجات متنوعة";
 }
 
-// ✅ ترجمة الفارينت (مرة واحدة فقط)
-function translateVariant(value) {
-  const map = {
-    Color: "اللون",
-    Size: "المقاس",
-    Material: "المادة",
-    Type: "النوع",
-    Blue: "أزرق",
-    Red: "أحمر",
-    Green: "أخضر",
-    Yellow: "أصفر",
-    Black: "أسود",
-    White: "أبيض",
-    Pink: "وردي",
-    Gold: "ذهبي",
-    Silver: "فضي",
-    Large: "كبير",
-    Medium: "متوسط",
-    Small: "صغير",
-  };
-  return map[value] || value;
-}
-
-// ✅ إنشاء وصف عربي تسويقي محسّن
-async function generateArabicDescription(title, description) {
+// ✅ توليد العنوان والوصف بالعربية (بدون HTML)
+async function generateArabicContent(title, description) {
   const prompt = `
-أنت كاتب تسويق محترف. اكتب وصفاً تسويقياً جذاباً ومنسقاً بلغة عربية فصحى متناسقة مع متجر إلكتروني عماني راقٍ.
-اجعل الوصف لا يتجاوز 250 كلمة فقط، منسقًا بعناوين فرعية واضحة (h3) ونقاط مميزة باستخدام <ul> و <li> دون أي كود CSS إضافي.
-تجنب التكرار أو كتابة "نوع المنتج" أو "الكلمات المفتاحية" داخل الوصف.
+ترجم النص التالي إلى العربية بأسلوب تسويقي احترافي يناسب متجر إلكتروني عماني مثل "إي سيلكت".
+- اكتب العنوان بشكل مختصر وجذاب (بحد أقصى 60 حرف).
+- اكتب الوصف بالعربية الفصحى فقط، بدون أي رموز أو HTML أو تنسيق خاص.
+- اجعل الوصف لا يتجاوز 250 كلمة، ويكون موجهًا للمستهلك.
 العنوان: ${title}
-الوصف الأصلي: ${description}
+الوصف: ${description}
 `;
 
-  const response = await axios.post(
+  const res = await axios.post(
     "https://api.openai.com/v1/chat/completions",
     {
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "You are a professional Arabic SEO writer." },
+        { role: "system", content: "You are a professional Arabic marketing translator." },
         { role: "user", content: prompt },
       ],
-      max_tokens: 600,
       temperature: 0.7,
+      max_tokens: 700,
     },
     { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
   );
 
-  return response.data.choices[0].message.content;
+  const text = res.data.choices[0].message.content
+    .replace(/\*|\#|\-/g, "")
+    .trim();
+
+  const lines = text.split("\n").filter(Boolean);
+  const arabicTitle = lines[0].slice(0, 60);
+  const arabicDesc = lines.slice(1).join(" ").replace(/\s+/g, " ");
+
+  return { arabicTitle, arabicDesc };
+}
+
+// ✅ ترجمة أي نص للفايرنت (أي خيار أو قيمة)
+async function translateToArabic(text) {
+  if (!text) return text;
+  try {
+    const res = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "ترجم النص التالي إلى العربية فقط بدون شرح:" },
+          { role: "user", content: text },
+        ],
+        temperature: 0.2,
+        max_tokens: 20,
+      },
+      { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
+    );
+    return res.data.choices[0].message.content.trim();
+  } catch {
+    return text;
+  }
 }
 
 // ✅ تحديث المنتج في Shopify
@@ -115,46 +123,58 @@ async function updateProductInShopify(productId, data) {
   console.log(`✅ تم تحديث المنتج ${productId} بنجاح`);
 }
 
-// ✅ المعالجة العامة
+// ✅ معالجة المنتج بالكامل
 async function processProduct(product) {
-  const { id, title, body_html, variants } = product;
+  const { id, title, body_html, variants, options } = product;
 
-  // تجاهل إذا تم تحسينه مسبقاً
+  // تخطي المنتج إذا تم تحسينه مسبقًا
   if (product.tags?.includes("AI-Optimized")) {
-    console.log(`ℹ️ المنتج ${title} تم تحسينه مسبقاً - تخطي`);
+    console.log(`ℹ️ المنتج ${title} تم تحسينه مسبقًا - تم التخطي`);
     return;
   }
 
-  console.log(`🧠 تحسين المنتج: ${title}`);
+  console.log(`🧠 جاري تحسين المنتج: ${title}`);
 
-  const newDesc = await generateArabicDescription(title, body_html);
-  const collection = detectCollection(title, newDesc);
-  const handle = cleanHandle(title);
+  // ترجمة العنوان والوصف
+  const { arabicTitle, arabicDesc } = await generateArabicContent(title, body_html);
 
-  const translatedVariants = variants.map((v) => ({
-    ...v,
-    option1: translateVariant(v.option1),
-    option2: translateVariant(v.option2),
-  }));
+  // تحديد الكولكشن
+  const collection = detectCollectionWeighted(arabicTitle, arabicDesc);
+  const handle = cleanHandle(arabicTitle);
 
+  // ترجمة الفايرنت (أيًا كانت)
+  const translatedOptions = [];
+  for (const opt of options) {
+    const newName = await translateToArabic(opt.name);
+    translatedOptions.push({ ...opt, name: newName });
+  }
+
+  const translatedVariants = [];
+  for (const v of variants) {
+    const newVariant = { ...v };
+    if (v.option1) newVariant.option1 = await translateToArabic(v.option1);
+    if (v.option2) newVariant.option2 = await translateToArabic(v.option2);
+    if (v.option3) newVariant.option3 = await translateToArabic(v.option3);
+    translatedVariants.push(newVariant);
+  }
+
+  // بناء البيانات النهائية
   const payload = {
     id,
-    body_html: newDesc,
+    title: arabicTitle,
+    body_html: arabicDesc,
     handle,
     tags: `${product.tags || ""}, AI-Optimized`,
     product_type: collection,
-    options: product.options.map((opt) => ({
-      ...opt,
-      name: translateVariant(opt.name),
-    })),
+    options: translatedOptions,
     variants: translatedVariants,
   };
 
   await updateProductInShopify(id, payload);
-  console.log(`🎯 تم تحسين المنتج ${title} ووضعه في كولكشن ${collection}`);
+  console.log(`🎯 تم تحسين المنتج "${arabicTitle}" ووضعه في كولكشن "${collection}"`);
 }
 
-// ✅ Webhook: إنشاء منتج جديد
+// ✅ Webhook عند إنشاء منتج جديد
 app.post("/webhook/product-created", async (req, res) => {
   try {
     const product = req.body;
@@ -167,7 +187,7 @@ app.post("/webhook/product-created", async (req, res) => {
   }
 });
 
-// ✅ Webhook: تحديث منتج
+// ✅ Webhook عند تحديث منتج
 app.post("/webhook/product-updated", async (req, res) => {
   try {
     const product = req.body;
@@ -181,7 +201,7 @@ app.post("/webhook/product-updated", async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("🚀 eSelect AI Translator v2.9 - Running Smoothly");
+  res.send("🚀 eSelect AI Translator v3.0 - Arabic Text Edition Running Smoothly");
 });
 
 const PORT = process.env.PORT || 3000;
