@@ -1,7 +1,7 @@
 {
   "name": "eselect-ai-translator",
-  "version": "3.0.0",
-  "description": "Shopify Arabic Smart Product Optimizer (Text Edition) by eSelect",
+  "version": "3.1.0",
+  "description": "Shopify Arabic Smart Product Optimizer (Weighted AI) by eSelect",
   "main": "server.js",
   "type": "module",
   "scripts": {
