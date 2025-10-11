@@ -1,16 +1,16 @@
 {
-  "name": "eselect-ai-translator-v2.5",
-  "version": "2.5.0",
-  "description": "AI-powered Arabic translator and SEO product enhancer for Shopify | eSelect",
+  "name": "eselect-ai-translator",
+  "version": "2.9.0",
+  "description": "Shopify Arabic Smart Product Optimizer by eSelect",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "axios": "^1.7.0",
-    "express": "^4.19.2",
-    "openai": "^4.0.0",
-    "fs": "^0.0.1-security"
+    "axios": "^1.7.4",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
   }
 }
