@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify Smart Arabic Optimizer v3.0 (Text Edition)
+ * Shopify Smart Arabic Optimizer v3.1 Pro (Weighted AI)
  * إعداد: سالم السليمي | eselect.store
  */
 
@@ -18,11 +18,13 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const SHOPIFY_STORE = "eselect.store";
 
+// تحميل التشكيلات
 const collections = JSON.parse(fs.readFileSync("./collections.json", "utf-8"));
 
-// ✳️ أدوات مساعدة
+// تأخير بسيط للطلبات لتجنب تجاوز الحد
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// تنظيف الرابط
 function cleanHandle(title) {
   return title
     .replace(/[^\w\s-]/g, "")
@@ -32,34 +34,43 @@ function cleanHandle(title) {
     .substring(0, 60);
 }
 
-// ✅ اختيار الكولكشن الذكي (بوزن الكلمات)
+/* ✅ خوارزمية تحديد التشكيلة (80% للعنوان و20% للوصف) */
 function detectCollectionWeighted(title, description) {
   let bestMatch = "منتجات متنوعة";
   let bestScore = 0;
 
   for (const c of collections) {
     let score = 0;
+
     for (const k of c.keywords) {
-      const regex = new RegExp(k, "i");
-      if (regex.test(title)) score += 3;
-      else if (regex.test(description)) score += 1;
+      const regex = new RegExp(`\\b${k}\\b`, "i");
+
+      // 🔹 العنوان له وزن ×3
+      const titleMatches = (title.match(regex) || []).length;
+      if (titleMatches > 0) score += titleMatches * 3;
+
+      // 🔹 الوصف له وزن ×1
+      const descMatches = (description.match(regex) || []).length;
+      if (descMatches > 0) score += descMatches * 1;
     }
+
     if (score > bestScore) {
       bestScore = score;
       bestMatch = c.title;
     }
   }
 
-  return bestScore >= 2 ? bestMatch : "منتجات متنوعة";
+  // 🔹 شرط الحد الأدنى
+  return bestScore >= 3 ? bestMatch : "منتجات متنوعة";
 }
 
-// ✅ توليد العنوان والوصف بالعربية (بدون HTML)
+/* ✅ توليد عنوان ووصف بالعربية (بدون HTML أو رموز) */
 async function generateArabicContent(title, description) {
   const prompt = `
-ترجم النص التالي إلى العربية بأسلوب تسويقي احترافي يناسب متجر إلكتروني عماني مثل "إي سيلكت".
-- اكتب العنوان بشكل مختصر وجذاب (بحد أقصى 60 حرف).
-- اكتب الوصف بالعربية الفصحى فقط، بدون أي رموز أو HTML أو تنسيق خاص.
-- اجعل الوصف لا يتجاوز 250 كلمة، ويكون موجهًا للمستهلك.
+ترجم النص التالي إلى العربية الفصحى بأسلوب تسويقي احترافي يناسب متجر إلكتروني عماني مثل "إي سيلكت".
+- لا تكتب كلمة "العنوان" أو "الوصف".
+- اجعل العنوان موجزًا وجذابًا (حتى 60 حرف).
+- اجعل الوصف واضحًا ومقنعًا في حدود 250 كلمة دون تنسيق HTML أو رموز.
 العنوان: ${title}
 الوصف: ${description}
 `;
@@ -89,7 +100,7 @@ async function generateArabicContent(title, description) {
   return { arabicTitle, arabicDesc };
 }
 
-// ✅ ترجمة أي نص للفايرنت (أي خيار أو قيمة)
+/* ✅ ترجمة الفايرنت (جميع الخيارات والقيم) */
 async function translateToArabic(text) {
   if (!text) return text;
   try {
@@ -98,7 +109,7 @@ async function translateToArabic(text) {
       {
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "ترجم النص التالي إلى العربية فقط بدون شرح:" },
+          { role: "system", content: "ترجم النص التالي إلى العربية فقط بدون أي رموز:" },
           { role: "user", content: text },
         ],
         temperature: 0.2,
@@ -112,7 +123,7 @@ async function translateToArabic(text) {
   }
 }
 
-// ✅ تحديث المنتج في Shopify
+/* ✅ تحديث المنتج داخل شوبيفاي */
 async function updateProductInShopify(productId, data) {
   const url = `https://${SHOPIFY_STORE}/admin/api/2024-07/products/${productId}.json`;
   await axios.put(
@@ -123,26 +134,23 @@ async function updateProductInShopify(productId, data) {
   console.log(`✅ تم تحديث المنتج ${productId} بنجاح`);
 }
 
-// ✅ معالجة المنتج بالكامل
+/* ✅ المعالجة الرئيسية للمنتج */
 async function processProduct(product) {
   const { id, title, body_html, variants, options } = product;
 
-  // تخطي المنتج إذا تم تحسينه مسبقًا
   if (product.tags?.includes("AI-Optimized")) {
-    console.log(`ℹ️ المنتج ${title} تم تحسينه مسبقًا - تم التخطي`);
+    console.log(`ℹ️ المنتج "${title}" تم تحسينه مسبقًا - تم التخطي`);
     return;
   }
 
   console.log(`🧠 جاري تحسين المنتج: ${title}`);
 
-  // ترجمة العنوان والوصف
   const { arabicTitle, arabicDesc } = await generateArabicContent(title, body_html);
 
-  // تحديد الكولكشن
   const collection = detectCollectionWeighted(arabicTitle, arabicDesc);
   const handle = cleanHandle(arabicTitle);
 
-  // ترجمة الفايرنت (أيًا كانت)
+  // ترجمة خيارات وفايرنتات المنتج
   const translatedOptions = [];
   for (const opt of options) {
     const newName = await translateToArabic(opt.name);
@@ -158,7 +166,6 @@ async function processProduct(product) {
     translatedVariants.push(newVariant);
   }
 
-  // بناء البيانات النهائية
   const payload = {
     id,
     title: arabicTitle,
@@ -167,14 +174,14 @@ async function processProduct(product) {
     tags: `${product.tags || ""}, AI-Optimized`,
     product_type: collection,
     options: translatedOptions,
-    variants: translatedVariants,
+    variants: translatedVariants
   };
 
   await updateProductInShopify(id, payload);
   console.log(`🎯 تم تحسين المنتج "${arabicTitle}" ووضعه في كولكشن "${collection}"`);
 }
 
-// ✅ Webhook عند إنشاء منتج جديد
+/* ✅ Webhook عند إنشاء منتج */
 app.post("/webhook/product-created", async (req, res) => {
   try {
     const product = req.body;
@@ -187,7 +194,7 @@ app.post("/webhook/product-created", async (req, res) => {
   }
 });
 
-// ✅ Webhook عند تحديث منتج
+/* ✅ Webhook عند تعديل منتج */
 app.post("/webhook/product-updated", async (req, res) => {
   try {
     const product = req.body;
@@ -195,13 +202,14 @@ app.post("/webhook/product-updated", async (req, res) => {
     await processProduct(product);
     res.sendStatus(200);
   } catch (err) {
-    console.error("❌ خطأ أثناء تحديث المنتج:", err.message);
+    console.error("❌ خطأ أثناء التحديث:", err.message);
     res.sendStatus(500);
   }
 });
 
+/* ✅ نقطة الفحص */
 app.get("/", (req, res) => {
-  res.send("🚀 eSelect AI Translator v3.0 - Arabic Text Edition Running Smoothly");
+  res.send("🚀 eSelect AI Translator v3.1 Pro - Weighted Arabic Optimizer is Running Perfectly");
 });
 
 const PORT = process.env.PORT || 3000;
