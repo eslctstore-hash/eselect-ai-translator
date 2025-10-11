@@ -1,7 +1,7 @@
 {
-  "name": "eselect-ai-translator",
-  "version": "1.0.0",
-  "description": "AI-powered Arabic translation and marketing content generator for Shopify products.",
+  "name": "eselect-ai-translator-v2",
+  "version": "2.0.0",
+  "description": "AI-based Arabic product translator and auto-classifier for Shopify | eSelect.",
   "main": "server.js",
   "type": "module",
   "scripts": {
