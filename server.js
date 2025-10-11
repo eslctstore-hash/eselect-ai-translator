@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify Smart Arabic Categorizer v4.1 (Deep Hybrid Model + Collections)
+ * Shopify AI Categorizer & Arabic Translator v5.0
  * إعداد: سالم السليمي | https://eselect.store
  */
 
@@ -14,11 +14,12 @@ dotenv.config();
 const app = express();
 app.use(bodyParser.json());
 
+// ================== ENV ==================
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-const SHOPIFY_STORE = "eselect.store";
+const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL || "https://eselect.store";
 
-// تحميل الملفات
+// ================== LOAD FILES ==================
 const collections = JSON.parse(fs.readFileSync("./collections.json", "utf-8"));
 const typeMap = JSON.parse(fs.readFileSync("./typeMap.json", "utf-8"));
 const cachePath = "./cache.json";
@@ -33,95 +34,76 @@ const log = (msg) => {
   console.log(msg);
 };
 
-/* ✅ تنظيف الـ handle الذكي */
-async function generateSmartHandle(title) {
+// ================== HELPERS ==================
+function extractDeliveryDays(text) {
+  if (!text) return null;
+  const patterns = [
+    /(\d+)\s*-\s*(\d+)\s*(day|days|business days)/i,
+    /delivery[:\s]*(\d+)\s*-\s*(\d+)/i,
+    /ships\s*in\s*(\d+)\s*-\s*(\d+)/i,
+    /(\d+)\s*to\s*(\d+)\s*(day|days)/i,
+  ];
+  for (const p of patterns) {
+    const match = text.match(p);
+    if (match) {
+      const from = match[1];
+      const to = match[2];
+      return `من ${from} إلى ${to} أيام`;
+    }
+  }
+  return null;
+}
+
+// ✅ تحويل إنجليزي إلى عربي (للخيارات)
+async function translateText(text) {
   try {
     const res = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content:
-              "Translate this Arabic product title into a short, SEO-friendly English slug (max 50 chars, lowercase, hyphen separated, no symbols).",
-          },
-          { role: "user", content: title },
+          { role: "system", content: "ترجم النص التالي إلى العربية فقط دون شرح." },
+          { role: "user", content: text },
         ],
       },
       { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
     );
-
-    return res.data.choices[0].message.content
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .trim()
-      .replace(/\s+/g, "-")
-      .substring(0, 50);
+    return res.data.choices[0].message.content.trim();
   } catch {
-    return title.toLowerCase().replace(/\s+/g, "-").substring(0, 50);
+    return text;
   }
 }
 
-/* ✅ خوارزمية التشكيلة (80% للعنوان و20% للوصف) */
-function detectCollectionWeighted(title, description) {
-  let bestMatch = "منتجات متنوعة";
-  let bestScore = 0;
-  let confidence = 0;
-
-  for (const c of collections) {
-    let score = 0;
-    for (const k of c.keywords) {
-      const regex = new RegExp(`\\b${k}\\b`, "i");
-      const titleCount = (title.match(regex) || []).length * 3;
-      const descCount = (description.match(regex) || []).length * 1;
-      score += titleCount + descCount;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = c.title;
-      confidence = score;
-    }
-  }
-
-  return { bestMatch, confidence };
-}
-
-/* ✅ تحليل ذكي باستخدام GPT عند الغموض */
-async function aiFallbackCategorization(title, description) {
+// ✅ إنشاء عنوان وصفي واقعي
+async function generateProductTitle(title, desc) {
   const prompt = `
-قم بتصنيف المنتج التالي إلى واحدة فقط من التشكيلات التالية:
-${collections.map((c) => `- ${c.title}`).join("\n")}
+أعد صياغة العنوان التالي ليكون واضحًا ودقيقًا يصف المنتج الحقيقي فقط دون عبارات تسويقية.
+استخدم كلمات مثل (هاتف، سماعة، ثلاجة، كاميرا...) واجعله بالعربية الواضحة.
 العنوان: ${title}
-الوصف: ${description}
-أجب فقط باسم التشكيلة المناسبة دون أي شرح.
+الوصف: ${desc}
 `;
-
   const res = await axios.post(
     "https://api.openai.com/v1/chat/completions",
     {
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "You are a categorization assistant." },
+        { role: "system", content: "أنت كاتب منتجات متخصص بالعربية." },
         { role: "user", content: prompt },
       ],
+      max_tokens: 150,
     },
     { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
   );
-
-  return res.data.choices[0].message.content.trim();
+  return res.data.choices[0].message.content.replace(/\n/g, "").trim();
 }
 
-/* ✅ إنشاء محتوى تسويقي بالعربية */
-async function generateArabicContent(title, description) {
+// ✅ إنشاء وصف تسويقي احترافي بالعربية
+async function generateArabicDesc(title, description) {
   const prompt = `
-ترجم النص التالي إلى العربية الفصحى بأسلوب تسويقي جذاب لمتجر إلكتروني عماني مثل "إي سيلكت".
-- لا تكتب كلمات مثل "العنوان" أو "الوصف".
-- استخدم جملًا واضحة ومقنعة في حدود 250 كلمة.
-العنوان: ${title}
-الوصف: ${description}
+ترجم النص التالي إلى العربية الفصحى بأسلوب تسويقي واضح ومهني بحدود 250 كلمة، دون رموز أو علامات خاصة:
+${title}
+${description}
 `;
-
   const res = await axios.post(
     "https://api.openai.com/v1/chat/completions",
     {
@@ -135,51 +117,89 @@ async function generateArabicContent(title, description) {
     },
     { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
   );
-
-  const content = res.data.choices[0].message.content
-    .replace(/\*|\#|\-/g, "")
-    .trim();
-  const lines = content.split("\n").filter(Boolean);
-  const arabicTitle = lines[0].slice(0, 70);
-  const arabicDesc = lines.slice(1).join(" ").replace(/\s+/g, " ");
-
-  return { arabicTitle, arabicDesc };
+  return res.data.choices[0].message.content.replace(/\*|\#|\-/g, "").trim();
 }
 
-/* ✅ تصنيف المنتج وتحديثه */
-async function processProduct(product) {
-  const { id, title, body_html } = product;
-  if (product.tags?.includes("AI-Optimized")) return;
+// ✅ تحديد التشكيلة (Collection)
+function detectCollectionWeighted(title, desc) {
+  let bestMatch = "منتجات متنوعة";
+  let bestScore = 0;
 
-  if (cache[id]) {
-    log(`⚡ المنتج ${title} موجود في الذاكرة cache – تم تخطيه`);
-    return;
+  for (const c of collections) {
+    let score = 0;
+    for (const k of c.keywords) {
+      const regex = new RegExp(`\\b${k}\\b`, "i");
+      const titleMatch = (title.match(regex) || []).length * 3;
+      const descMatch = (desc.match(regex) || []).length * 1;
+      score += titleMatch + descMatch;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = c.title;
+    }
   }
 
-  const { arabicTitle, arabicDesc } = await generateArabicContent(
-    title,
-    body_html || ""
-  );
+  return { bestMatch, confidence: bestScore };
+}
 
-  // 🔍 تحديد التشكيلة
-  let { bestMatch, confidence } = detectCollectionWeighted(
-    arabicTitle,
-    arabicDesc
+// ✅ GPT fallback عند الغموض
+async function aiFallbackCategorization(title, desc) {
+  const prompt = `
+صنف المنتج التالي ضمن واحدة فقط من هذه التشكيلات:
+${collections.map((c) => `- ${c.title}`).join("\n")}
+العنوان: ${title}
+الوصف: ${desc}
+أجب فقط باسم التشكيلة المناسبة.
+`;
+  const res = await axios.post(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "أنت مساعد تصنيف منتجات." },
+        { role: "user", content: prompt },
+      ],
+    },
+    { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
   );
-  if (confidence < 5)
-    bestMatch = await aiFallbackCategorization(arabicTitle, arabicDesc);
+  return res.data.choices[0].message.content.trim();
+}
 
+// ✅ المعالجة الكاملة للمنتج
+async function processProduct(product) {
+  const { id, title, body_html, variants = [], tags } = product;
+  if (tags?.includes("AI-Optimized")) return;
+
+  log(`🚀 معالجة المنتج: ${title}`);
+
+  const arabicTitle = await generateProductTitle(title, body_html || "");
+  const arabicDesc = await generateArabicDesc(title, body_html || "");
+  const deliveryDays = extractDeliveryDays(body_html || "");
+
+  // تحديد التشكيلة
+  let { bestMatch, confidence } = detectCollectionWeighted(arabicTitle, arabicDesc);
+  if (confidence < 5) bestMatch = await aiFallbackCategorization(arabicTitle, arabicDesc);
   const productType = typeMap[bestMatch] || "منتجات متنوعة";
-  const handle = await generateSmartHandle(arabicTitle);
 
-  // ✅ تحميل المنتج إلى Shopify
+  // ترجمة الـ Variants
+  const translatedOptions = [];
+  for (const opt of product.options || []) {
+    const newName = await translateText(opt.name);
+    const newValues = await Promise.all(opt.values.map(v => translateText(v)));
+    translatedOptions.push({ name: newName, values: newValues });
+  }
+
+  // ترجمة الوسوم للعربية
+  const arabicTags = await translateText(tags || "");
+
+  // تحديث المنتج في Shopify
   const payload = {
     id,
     title: arabicTitle,
     body_html: arabicDesc,
-    handle,
     product_type: productType,
-    tags: `${product.tags || ""}, AI-Optimized, ${bestMatch}`,
+    tags: `${arabicTags}, ${bestMatch}, AI-Optimized`,
+    options: translatedOptions,
     metafields: [
       {
         namespace: "custom",
@@ -187,30 +207,36 @@ async function processProduct(product) {
         type: "single_line_text_field",
         value: bestMatch,
       },
+      ...(deliveryDays
+        ? [
+            {
+              namespace: "custom",
+              key: "delivery_days",
+              type: "single_line_text_field",
+              value: deliveryDays,
+            },
+          ]
+        : []),
     ],
   };
 
-  const url = `https://${SHOPIFY_STORE}/admin/api/2024-07/products/${id}.json`;
+  const url = `${SHOPIFY_STORE_URL}/admin/api/2024-07/products/${id}.json`;
   await axios.put(
     url,
     { product: payload },
     { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } }
   );
 
-  cache[id] = { collection: bestMatch, type: productType };
+  cache[id] = { title: arabicTitle, collection: bestMatch };
   fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2));
 
-  log(
-    `🎯 تم تصنيف المنتج "${arabicTitle}" إلى "${bestMatch}" (${productType}) وأضيفت في الميتافيلد`
-  );
+  log(`🎯 تم تحديث المنتج "${arabicTitle}" → "${bestMatch}" ✅`);
 }
 
-/* ✅ Webhooks */
+// ================== WEBHOOKS ==================
 app.post("/webhook/product-created", async (req, res) => {
   try {
-    const product = req.body;
-    log(`🆕 منتج جديد: ${product.title}`);
-    await processProduct(product);
+    await processProduct(req.body);
     res.sendStatus(200);
   } catch (e) {
     log(`❌ خطأ أثناء إنشاء المنتج: ${e.message}`);
@@ -220,9 +246,7 @@ app.post("/webhook/product-created", async (req, res) => {
 
 app.post("/webhook/product-updated", async (req, res) => {
   try {
-    const product = req.body;
-    log(`♻️ تحديث منتج: ${product.title}`);
-    await processProduct(product);
+    await processProduct(req.body);
     res.sendStatus(200);
   } catch (e) {
     log(`❌ خطأ أثناء التحديث: ${e.message}`);
@@ -230,9 +254,9 @@ app.post("/webhook/product-updated", async (req, res) => {
   }
 });
 
-/* ✅ اختبار السيرفر */
+// ================== SERVER ==================
 app.get("/", (req, res) => {
-  res.send("🚀 eSelect AI Categorizer v4.1 with Collections is running!");
+  res.send("🚀 eSelect AI Translator v5.0 is running perfectly with Variants + Collections + Delivery Days!");
 });
 
 const PORT = process.env.PORT || 3000;
