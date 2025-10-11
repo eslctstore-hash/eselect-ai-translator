@@ -1,7 +1,7 @@
 {
   "name": "eselect-ai-translator",
-  "version": "3.1.0",
-  "description": "Shopify Arabic Smart Product Optimizer (Weighted AI) by eSelect",
+  "version": "3.5.0",
+  "description": "AI-powered Shopify product translator & optimizer for eSelect | إي سيلكت",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -9,8 +9,12 @@
   },
   "dependencies": {
     "axios": "^1.7.4",
-    "body-parser": "^1.20.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2"
-  }
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "author": "eSelect | إي سيلكت",
+  "license": "MIT"
 }
