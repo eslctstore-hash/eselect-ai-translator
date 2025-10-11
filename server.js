@@ -6,19 +6,19 @@ import fs from "fs";
 const app = express();
 app.use(express.json());
 
-// 🧩 مفاتيح البيئة
+// إعداد مفاتيح البيئة
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL; // مثال: eselect.store
+const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL; // مثل: eselect.store
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// 🧠 تهيئة OpenAI
+// تهيئة OpenAI
 const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-// 🗂 تحميل الكولكشنات الجاهزة
+// تحميل قائمة الكولكشنات
 const collections = JSON.parse(fs.readFileSync("./collections.json", "utf-8"));
 const DEFAULT_COLLECTION = "منتجات متنوعة";
 
-// 🔹 دالة مساعدة لتوليد URL إنجليزي قصير
+// دالة لتوليد handle إنجليزي قصير
 function toEnglishHandle(text) {
   return text
     .replace(/[^a-zA-Z0-9\s]/g, "")
@@ -27,53 +27,60 @@ function toEnglishHandle(text) {
     .substring(0, 60);
 }
 
-// ✅ Webhook: عند إنشاء منتج جديد
+// استقبال Webhook عند إنشاء منتج جديد
 app.post("/webhook/product-created", async (req, res) => {
   try {
     const product = req.body;
     const { id, title, body_html, variants } = product;
-
     console.log(`🆕 منتج جديد: ${title}`);
 
-    // 🧠 توليد وصف وعنوان وSEO بالعربية
+    // 🔹 توليد وصف تسويقي منسق بالعربية
     const prompt = `
-حلّل النص أدناه واكتب:
-1. عنوان تسويقي عربي لا يتجاوز 70 حرفًا
-2. وصف HTML منسق بالعربية بأسلوب تسويقي احترافي وجذاب لمتجر إلكتروني
+أنت خبير تسويق إلكتروني عربي متخصص في كتابة أوصاف المنتجات باحترافية HTML.
+أعد صياغة النص التالي بحيث يتضمن:
+1. عنوان تسويقي جذاب بالعربية ≤ 70 حرفًا
+2. وصف HTML منسق يحتوي على:
+   - فقرة مقدمة جذابة
+   - قائمة مميزات المنتج ✅
+   - فقرة "لماذا نوصي به" 🔹
+   - قائمة المواصفات الأساسية ⚙️
+   - قسم "محتويات العبوة" 📦 إذا كانت البيانات متوفرة
 3. نوع المنتج (Product Type)
-4. كلمات مفتاحية (Tags) بالعربية
-5. وصف SEO عربي قصير (≤155 حرف)
-6. توليد عنوان صفحة SEO (Page Title)
-7. اقتراح URL بالإنجليزية القصيرة (مستمدة من الاسم العربي لكن بحروف إنجليزية فقط)
+4. كلمات مفتاحية بالعربية (Tags)
+5. وصف SEO عربي ≤ 155 حرفًا
+6. Page title عربي
+7. URL بالإنجليزية القصيرة
 
-النص:
+البيانات الأصلية:
 العنوان: ${title}
 الوصف: ${body_html}
+الخيارات (Variants): ${JSON.stringify(variants || [])}
     `;
 
     const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4-turbo",
       messages: [
-        { role: "system", content: "أنت خبير تسويق إلكتروني متخصص في المنتجات." },
+        { role: "system", content: "أنت خبير تسويق إلكتروني محترف في كتابة المحتوى العربي لمتاجر Shopify." },
         { role: "user", content: prompt }
-      ]
+      ],
     });
 
-    const aiResponse = completion.choices[0].message.content;
+    const result = completion.choices[0].message.content;
+    console.log("✅ استجابة GPT:\n", result);
 
-    console.log("✅ استجابة الذكاء الاصطناعي:\n", aiResponse);
+    // استخراج الحقول من الرد
+    const lines = result.split("\n").map(l => l.trim()).filter(Boolean);
+    const getVal = (n) => lines.find(l => l.startsWith(`${n}.`))?.replace(`${n}.`, "").trim();
 
-    // 🧩 تحليل الناتج (استخراج الحقول تلقائيًا)
-    const lines = aiResponse.split("\n").map(l => l.trim()).filter(Boolean);
-    const newTitle = lines.find(l => l.startsWith("1."))?.replace("1.", "").trim() || title;
-    const newDescription = lines.find(l => l.startsWith("2."))?.replace("2.", "").trim() || body_html;
-    const newType = lines.find(l => l.startsWith("3."))?.replace("3.", "").trim() || "منتجات متنوعة";
-    const newTags = lines.find(l => l.startsWith("4."))?.replace("4.", "").trim() || "متنوعة";
-    const metaDescription = lines.find(l => l.startsWith("5."))?.replace("5.", "").trim() || newTitle;
-    const pageTitle = lines.find(l => l.startsWith("6."))?.replace("6.", "").trim() || newTitle;
-    const handle = lines.find(l => l.startsWith("7."))?.replace("7.", "").trim() || toEnglishHandle(title);
+    const newTitle = getVal(1) || title;
+    const newDescription = getVal(2) || body_html;
+    const newType = getVal(3) || "منتجات متنوعة";
+    const newTags = getVal(4) || "منتجات";
+    const metaDescription = getVal(5) || newTitle;
+    const pageTitle = getVal(6) || newTitle;
+    const handle = getVal(7) || toEnglishHandle(title);
 
-    // 🏷️ تحديد الكولكشن المناسب
+    // تحديد الكولكشن المناسب
     let selectedCollection = DEFAULT_COLLECTION;
     for (const c of collections) {
       if (title.includes(c.split(" ")[0]) || body_html.includes(c.split(" ")[0])) {
@@ -82,7 +89,7 @@ app.post("/webhook/product-created", async (req, res) => {
       }
     }
 
-    // 🔹 تحديث المنتج في Shopify
+    // تحديث المنتج داخل Shopify
     await axios.put(
       `https://${SHOPIFY_STORE_URL}/admin/api/2024-10/products/${id}.json`,
       {
@@ -117,7 +124,7 @@ app.post("/webhook/product-created", async (req, res) => {
       }
     );
 
-    // 🔹 ربط الكولكشن
+    // ربط الكولكشن
     const allCollections = await axios.get(
       `https://${SHOPIFY_STORE_URL}/admin/api/2024-10/custom_collections.json`,
       { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } }
@@ -137,16 +144,16 @@ app.post("/webhook/product-created", async (req, res) => {
     }
 
     console.log(`✅ تم تصنيف المنتج إلى كولكشن: ${selectedCollection}`);
-    res.status(200).send("تم الترجمة والتصنيف بنجاح ✅");
+    res.status(200).send("تم الترجمة والتصنيف والتنسيق بنجاح ✅");
 
-  } catch (error) {
-    console.error("❌ خطأ:", error.message);
+  } catch (err) {
+    console.error("❌ خطأ:", err.message);
     res.status(500).send("حدث خطأ أثناء معالجة المنتج");
   }
 });
 
 app.get("/", (req, res) => {
-  res.send("🚀 eSelect AI Translator v2 يعمل بنجاح");
+  res.send("🚀 eSelect AI Translator v2.5 يعمل بنجاح");
 });
 
 const PORT = process.env.PORT || 3000;
