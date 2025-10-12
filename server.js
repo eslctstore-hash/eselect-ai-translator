@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify Smart Arabic Categorizer & SEO v5.0
+ * Shopify Smart Arabic Categorizer & SEO v5.1
  * إعداد: سالم السليمي | https://eselect.store
  */
 
@@ -14,13 +14,13 @@ dotenv.config();
 const app = express();
 app.use(bodyParser.json());
 
-// === المتغيرات البيئية ===
+// === Environment ===
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
 const PORT = process.env.PORT || 3000;
 
-// === تحميل الملفات ===
+// === Files ===
 const collections = JSON.parse(fs.readFileSync("./collections.json", "utf-8"));
 const typeMap = JSON.parse(fs.readFileSync("./typeMap.json", "utf-8"));
 const cachePath = "./cache.json";
@@ -28,21 +28,24 @@ let cache = fs.existsSync(cachePath)
   ? JSON.parse(fs.readFileSync(cachePath, "utf-8"))
   : {};
 
-// === الدوال المساعدة ===
+// === Logger ===
 const log = (step, msg, icon = "✅") => {
-  const time = new Date().toISOString();
-  const line = `[${time}] ${icon} [${step}] ${msg}\n`;
+  const line = `[${new Date().toISOString()}] ${icon} [${step}] ${msg}\n`;
   fs.appendFileSync("./logs/actions.log", line);
   console.log(line);
 };
 
-// ✅ تحسين العنوان والوصف
+// === Helpers ===
+
+// ترقية العنوان والوصف
 async function translateAndEnhance(text, type = "title") {
   if (!text) return "";
   const prompt = `
-ترجم النص التالي إلى العربية الفصحى بأسلوب تسويقي واضح واحترافي.
-لا تكتب كلمات مثل "العنوان" أو "الوصف".
-${type === "title" ? "صيغه كاسم منتج احترافي." : "اجعله وصفًا جذابًا ومقنعًا في حدود 250 كلمة."}
+ترجم النص التالي إلى العربية الفصحى بأسلوب تسويقي جذاب وواضح.
+تجنب كتابة كلمات مثل "العنوان" أو "الوصف".
+${type === "title"
+    ? "اجعله اسم منتج احترافي وواضح ومفهوم."
+    : "اجعله وصفًا تسويقيًا احترافيًا لا يتجاوز 250 كلمة."}
 النص: ${text}`;
 
   try {
@@ -56,19 +59,21 @@ ${type === "title" ? "صيغه كاسم منتج احترافي." : "اجعله 
       },
       { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
     );
-    return res.data.choices[0].message.content
+    const content = res.data.choices[0].message.content
       .replace(/(العنوان|الوصف)[:：]/gi, "")
+      .replace(/[*#\-]/g, "")
       .trim();
+    return content;
   } catch (err) {
     log("AI", `فشل ترجمة ${type}: ${err.message}`, "❌");
     return text;
   }
 }
 
-// ✅ استخراج زمن التوصيل
-function extractDeliveryDays(description) {
+// استخراج عدد أيام التوصيل
+function extractDeliveryDays(text) {
   try {
-    const match = description.match(
+    const match = text.match(
       /(\d{1,2})\s*[-–]\s*(\d{1,2})|(\d{1,2})\s*(?:day|days|business|working)?/i
     );
     if (match) {
@@ -76,10 +81,10 @@ function extractDeliveryDays(description) {
       if (match[3]) return match[3];
     }
   } catch {}
-  return "21"; // القيمة الافتراضية
+  return "21";
 }
 
-// ✅ إنشاء slug للـ URL
+// إنشاء handle URL
 function generateHandle(title) {
   return title
     .toLowerCase()
@@ -89,14 +94,15 @@ function generateHandle(title) {
     .substring(0, 60);
 }
 
-// ✅ إنشاء SEO
+// إنشاء بيانات SEO
 function generateSEO(title, desc) {
+  const cleanDesc = desc.replace(/<[^>]*>/g, "").replace(/\n/g, " ");
   const seoTitle = title.substring(0, 60);
-  const seoDesc = desc.replace(/\n/g, " ").substring(0, 155);
+  const seoDesc = cleanDesc.substring(0, 155);
   return { seoTitle, seoDesc };
 }
 
-// ✅ تصنيف المنتج
+// تصنيف المنتج حسب الكلمات
 function detectCollection(title, description) {
   let bestMatch = "منتجات متنوعة";
   let bestScore = 0;
@@ -115,21 +121,20 @@ function detectCollection(title, description) {
   return bestMatch;
 }
 
-// ✅ ترجمة الفارينت (الأسماء والقيم)
+// ترجمة قيم الـ variants فقط
 async function translateVariants(product) {
   if (!product.options || product.options.length === 0) return product.options;
   const translated = [];
   for (const opt of product.options) {
-    const name = await translateAndEnhance(opt.name, "variant");
-    const values = await Promise.all(
+    const newValues = await Promise.all(
       opt.values.map((v) => translateAndEnhance(v, "variant"))
     );
-    translated.push({ name, values });
+    translated.push({ name: opt.name, values: newValues });
   }
   return translated;
 }
 
-// ✅ تحديث الميتافيلد
+// تحديث ميتافيلد
 async function updateMetafield(productId, key, value) {
   try {
     await axios.post(
@@ -152,46 +157,47 @@ async function updateMetafield(productId, key, value) {
   }
 }
 
-// ✅ تحديث المنتج في Shopify
-async function updateShopifyProduct(product, updates) {
+// تحديث منتج Shopify بدون تعديل الـ options مباشرة
+async function updateShopifyProduct(product, payload) {
   try {
+    const { id, ...body } = payload;
     await axios.put(
       `${SHOPIFY_STORE_URL}/admin/api/2024-07/products/${product.id}.json`,
-      { product: updates },
+      { product: body },
       { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } }
     );
-    log("Shopify", `تم تحديث المنتج ${product.title}`);
+    log("Shopify", `تم تحديث المنتج ${body.title}`);
   } catch (err) {
     log("Shopify", `فشل تحديث المنتج: ${err.message}`, "❌");
   }
 }
 
-// ✅ العملية الرئيسية
+// === العملية الرئيسية ===
 async function processProduct(product) {
   const { id, title, body_html } = product;
   if (cache[id]) return log("Cache", `المنتج ${title} تم معالجته مسبقًا`);
 
   log("Start", `بدء معالجة المنتج: ${title}`);
 
-  // الخطوة 1: ترجمة وتحسين العنوان والوصف
+  // 1️⃣ ترجمة وتحسين
   const arabicTitle = await translateAndEnhance(title, "title");
   const arabicDesc = await translateAndEnhance(body_html || "", "description");
 
-  // الخطوة 2: ترجمة الفارينت
+  // 2️⃣ ترجمة قيم الفارينت فقط
   const variants = await translateVariants(product);
 
-  // الخطوة 3: تحديد التشكيلة
+  // 3️⃣ تحديد التشكيلة
   const bestMatch = detectCollection(arabicTitle, arabicDesc);
   const productType = typeMap[bestMatch] || "منتجات متنوعة";
 
-  // الخطوة 4: SEO
+  // 4️⃣ SEO + handle
   const { seoTitle, seoDesc } = generateSEO(arabicTitle, arabicDesc);
   const handle = generateHandle(arabicTitle);
 
-  // الخطوة 5: زمن التوصيل
+  // 5️⃣ زمن التوصيل
   const deliveryDays = extractDeliveryDays(body_html);
 
-  // الخطوة 6: التحديث
+  // 6️⃣ إعداد البيانات (بدون حقول غير مسموحة)
   const payload = {
     id,
     title: arabicTitle,
@@ -199,17 +205,22 @@ async function processProduct(product) {
     handle,
     product_type: productType,
     tags: `${bestMatch}, ${productType}, ${arabicTitle}, AI-Optimized`,
-    options: variants,
-    seo: { title: seoTitle, description: seoDesc },
   };
 
   await updateShopifyProduct(product, payload);
   await updateMetafield(id, "delivery_days", deliveryDays);
 
+  // 7️⃣ إضافة ميتافيلد SEO
+  await updateMetafield(id, "seo_title", seoTitle);
+  await updateMetafield(id, "seo_description", seoDesc);
+
   cache[id] = { updated: true, title: arabicTitle, collection: bestMatch };
   fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2));
 
-  log("Finish", `🎯 المنتج "${arabicTitle}" تم معالجته وتحديثه بنجاح`);
+  log(
+    "Finish",
+    `🎯 المنتج "${arabicTitle}" تم معالجته وتحديثه بنجاح | التشكيلة: ${bestMatch}`
+  );
 }
 
 // === Webhooks ===
@@ -234,9 +245,9 @@ app.post("/webhook/product-updated", async (req, res) => {
 });
 
 app.get("/", (_, res) =>
-  res.send("🚀 eSelect AI Categorizer & Translator v5.0 is running!")
+  res.send("🚀 eSelect AI Categorizer & Translator v5.1 is running!")
 );
 
 app.listen(PORT, () =>
-  log("Server", `✅ Server running on port ${PORT} | https://eselect.store`)
+  log("Server", `✅ Server running on port ${PORT} | ${SHOPIFY_STORE_URL}`)
 );
