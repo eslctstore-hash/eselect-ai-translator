@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify AI Translator & Categorizer v6.2 (Robust Edition)
+ * Shopify AI Translator & Categorizer v6.3 (Final Edition)
  * إعداد: سالم السليمي | https://eselect.store
  * تطوير وتحسين: Gemini AI
  */
@@ -22,15 +22,11 @@ const {
   SHOPIFY_STORE_URL,
   PORT = 3000,
 } = process.env;
-const PROCESSED_TAG = "ai-processed"; // **NEW**: Tag to prevent loops
+const PROCESSED_TAG = "ai-processed";
 
-// =============== FILE LOADING & CACHE ===============
+// =============== FILE LOADING ===============
 const collections = JSON.parse(fs.readFileSync("./collections.json", "utf-8"));
 const typeMap = JSON.parse(fs.readFileSync("./typeMap.json", "utf-8"));
-const cachePath = "./cache.json";
-let cache = fs.existsSync(cachePath)
-  ? JSON.parse(fs.readFileSync(cachePath, "utf-8"))
-  : {};
 
 // =============== LOGGER UTILITY ===============
 const log = (step, msg, icon = "✅") => {
@@ -41,14 +37,14 @@ const log = (step, msg, icon = "✅") => {
 };
 
 // =============== AI & TRANSLATION HELPERS ===============
-async function makeOpenAIRequest(prompt, max_tokens = 1024) { // Increased tokens for better descriptions
+async function makeOpenAIRequest(prompt, max_tokens = 1024) {
   try {
     const response = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-4o-mini",
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.65,
+        temperature: 0.6,
         max_tokens,
       },
       { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
@@ -62,41 +58,69 @@ async function makeOpenAIRequest(prompt, max_tokens = 1024) { // Increased token
 }
 
 async function translateText(text, type = "title") {
-  if (!text || text.trim().length === 0) return "";
-  
-  // **MODIFIED**: More robust prompt for cleaning and formatting descriptions
-  const prompt =
-    type === "title"
-      ? `Translate this product title to professional, SEO-friendly Arabic. Keep it concise, under 80 characters.\n\nTitle: "${text}"`
-      : `Translate and professionally rewrite the following product description into compelling Arabic.
-      **Crucially, you must perform these cleaning steps:**
-      1.  **Remove all placeholders** like "[Product Name]", "![Product Image]", etc.
-      2.  **Delete any markdown titles** (e.g., "# Title", "## Subtitle"), hashtags, or promotional asterisks/stars.
-      3.  **Format the final output** with clear, professional headings (using bold text) and bullet points (using '- ' or '• ') for features and specifications.
-      4.  The final text must be clean, well-structured, and ready for an e-commerce page, not exceeding 400 words.
+  if (!text || !text.trim()) return "";
 
-      Description to process:\n"${text}"`;
+  let prompt;
+  if (type === "title") {
+    prompt = `Translate the following product title to concise, impactful Arabic. The title MUST be short, clear, and focus only on the main product function. **Maximum 60 characters.** Remove all unnecessary technical specifications.\n\nTitle: "${text}"`;
+  } else {
+    prompt = `You are an expert e-commerce copywriter. Translate and rewrite the following product description into professional Arabic. Your task is to extract ONLY the essential features and specifications and present them clearly.
+    **You MUST strictly follow these rules:**
+    1.  **DELETE all greetings, brand stories, or company introductions** (e.g., "Welcome to our store," "We are a professional factory").
+    2.  **DELETE any mentions of customer service** or instructions to contact someone.
+    3.  **Focus ONLY on what the product is, what it does, and its specifications.**
+    4.  **Structure the output** using a short introductory sentence, followed by a "**المميزات:**" list and a "**المواصفات:**" list using bullet points (e.g., • Point).
+    5.  The tone must be objective and product-focused.
+    
+    Description to process:\n"${text}"`;
+  }
   
   const translated = await makeOpenAIRequest(prompt);
-  return translated.replace(/^(العنوان|الوصف|الترجمة)[:：\s]*/i, "");
+  return translated.replace(/^(العنوان|الوصف|الترجمة)[:：\s]*/i, "").replace(/"/g, '');
 }
 
-async function translateOptions(options) {
-    if (!options || options.length === 0) return [];
-    const optionNames = options.map(opt => opt.name).join(', ');
-    const prompt = `Translate the following comma-separated product option names to Arabic. Return only the translated, comma-separated list.\n\nOptions: "${optionNames}"`;
-    try {
-        const translatedString = await makeOpenAIRequest(prompt, 100);
-        const translatedNames = translatedString.split(',').map(name => name.trim());
-        if (translatedNames.length !== options.length) {
-            log("TRANSLATE_OPTIONS", `⚠️ Mismatch in option translation. Original: ${optionNames}, Translated: ${translatedString}`, "⚠️");
-            return options;
-        }
-        return options.map((opt, index) => ({ ...opt, name: translatedNames[index] || opt.name }));
-    } catch (error) {
-        log("TRANSLATE_OPTIONS", `❌ Failed to translate options: ${error.message}`, "❌");
-        return options;
+async function translateVariants(product) {
+    if (!product.options || !product.variants) return product.variants;
+
+    const translationMap = new Map();
+    
+    // Translate option names
+    const optionNames = product.options.map(opt => opt.name).join(' || ');
+    const translatedNamesStr = await makeOpenAIRequest(`Translate these option names separated by '||': "${optionNames}"`, 100);
+    const translatedNames = translatedNamesStr.split('||').map(n => n.trim());
+
+    // Collect all unique option values
+    const uniqueValues = new Set();
+    product.variants.forEach(variant => {
+        if (variant.option1) uniqueValues.add(variant.option1);
+        if (variant.option2) uniqueValues.add(variant.option2);
+        if (variant.option3) uniqueValues.add(variant.option3);
+    });
+
+    if (uniqueValues.size > 0) {
+        const valuesStr = Array.from(uniqueValues).join(' || ');
+        const translatedValuesStr = await makeOpenAIRequest(`Translate these option values separated by '||': "${valuesStr}"`, 500);
+        const translatedValues = translatedValuesStr.split('||').map(v => v.trim());
+        
+        Array.from(uniqueValues).forEach((val, i) => {
+            translationMap.set(val, translatedValues[i] || val);
+        });
     }
+
+    // Apply translations
+    const translatedVariants = product.variants.map(variant => ({
+        ...variant,
+        option1: translationMap.get(variant.option1) || variant.option1,
+        option2: translationMap.get(variant.option2) || variant.option2,
+        option3: translationMap.get(variant.option3) || variant.option3,
+    }));
+    
+    const translatedOptions = product.options.map((opt, i) => ({
+        ...opt,
+        name: translatedNames[i] || opt.name,
+    }));
+
+    return { variants: translatedVariants, options: translatedOptions };
 }
 
 // =============== DATA PROCESSING HELPERS ===============
@@ -104,21 +128,6 @@ function generateHandle(englishTitle) {
   return englishTitle.toLowerCase().replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 70);
 }
 
-function extractDeliveryDays(htmlDescription) {
-  if (!htmlDescription) return "15";
-  const match = htmlDescription.match(/(\d{1,2})\s*(?:business\s*)?days?/i);
-  return match ? match[1] : "15";
-}
-
-function generateSEO(title, description) {
-  const cleanDescription = description.replace(/<[^>]+>/g, " ").replace(/\s\s+/g, ' ').trim();
-  return {
-    seoTitle: title.slice(0, 70),
-    seoDescription: cleanDescription.slice(0, 160),
-  };
-}
-
-// **MODIFIED**: Enhanced categorization logic to check English and Arabic text
 function detectCollectionAndType(enTitle, arTitle, arDescription) {
   let bestMatch = { title: "منتجات متنوعة", score: 0 };
   const combinedText = `${arTitle} ${arDescription}`;
@@ -126,133 +135,120 @@ function detectCollectionAndType(enTitle, arTitle, arDescription) {
   for (const collection of collections) {
     let currentScore = 0;
     for (const keyword of collection.keywords) {
-      const regex = new RegExp(`\\b${keyword}\\b`, "i"); // case-insensitive check
-      // Check English keywords against the original English title (high weight)
+      const regex = new RegExp(`\\b${keyword}\\b`, "i");
       if (/[a-zA-Z]/.test(keyword) && enTitle.match(regex)) currentScore += 5;
-      // Check Arabic keywords against translated text
       if (/[\u0600-\u06FF]/.test(keyword) && combinedText.match(regex)) currentScore += 3;
     }
     if (currentScore > bestMatch.score) {
       bestMatch = { title: collection.title, score: currentScore };
     }
   }
-  
   const productType = typeMap[bestMatch.title] || "منوعات";
-  log("CATEGORIZATION_DEBUG", `Scores: Best match is "${bestMatch.title}" with score ${bestMatch.score}. Assigned Type: "${productType}"`);
   return { collectionTitle: bestMatch.title, productType };
 }
 
 // =============== SHOPIFY API HELPERS ===============
-async function updateShopifyProduct(productId, payload) {
+async function makeShopifyRequest(method, endpoint, data = null) {
+  const url = `${SHOPIFY_STORE_URL}/admin/api/2024-07/${endpoint}`;
   try {
-    await axios.put(
-      `${SHOPIFY_STORE_URL}/admin/api/2024-07/products/${productId}.json`,
-      { product: payload },
-      { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN, "Content-Type": "application/json" } }
-    );
-    log("SHOPIFY_UPDATE", `Product ${productId} updated successfully.`);
+    const response = await axios({ method, url, data, headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } });
+    return response.data;
   } catch (err) {
     const errorMessage = err.response ? JSON.stringify(err.response.data) : err.message;
-    log("SHOPIFY_ERROR", `❌ Failed to update product ${productId}: ${errorMessage}`, "❌");
-    throw new Error("Shopify API update failed");
+    log("SHOPIFY_ERROR", `❌ API call to ${endpoint} failed: ${errorMessage}`, "❌");
+    throw new Error(`Shopify API call failed`);
   }
 }
 
-async function setMetafield(productId, key, value) {
+async function assignProductToCollection(productId, collectionTitle) {
   try {
-    await axios.post(
-      `${SHOPIFY_STORE_URL}/admin/api/2024-07/metafields.json`,
-      { metafield: { namespace: "custom", key, value, type: "number_integer", owner_id: productId, owner_resource: "product" } },
-      { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } }
-    );
-    log("METAFIELD_SET", `Set metafield '${key}' = '${value}' for product ${productId}`);
-  } catch (err) {
-    const errorMessage = err.response ? JSON.stringify(err.response.data.errors) : err.message;
-    log("METAFIELD_ERROR", `❌ Failed to set metafield '${key}': ${errorMessage}`, "❌");
+    const { product_collections } = await makeShopifyRequest('get', `collections.json?title=${encodeURIComponent(collectionTitle)}`);
+    if (product_collections && product_collections.length > 0) {
+      const collectionId = product_collections[0].id;
+      await makeShopifyRequest('post', 'collects.json', { collect: { product_id: productId, collection_id: collectionId } });
+      log("COLLECTION_ASSIGN", `Assigned product ${productId} to collection "${collectionTitle}"`);
+    } else {
+      log("COLLECTION_WARN", `⚠️ Collection "${collectionTitle}" not found in Shopify.`, "⚠️");
+    }
+  } catch (error) {
+     log("COLLECTION_ERROR", `❌ Failed to assign collection for product ${productId}.`, "❌");
   }
 }
 
 // =============== MAIN PRODUCT PROCESSING LOGIC ===============
 async function processProduct(product) {
-  const { id, title, body_html, options, tags } = product;
+  const { id, title, body_html, tags } = product;
 
-  // **MODIFIED**: Robust check to prevent webhook loops using a tag
   if (tags && tags.includes(PROCESSED_TAG)) {
-    log("LOOP_PREVENTION", `🔵 Skipping product ${id} because it has the '${PROCESSED_TAG}' tag.`, "🔵");
+    log("LOOP_PREVENTION", `🔵 Skipping already processed product ${id}.`, "🔵");
     return;
   }
   
-  log("START_PROCESSING", `🚀 Starting processing for product: "${title}" (ID: ${id})`);
+  log("START_PROCESSING", `🚀 Starting processing for: "${title}" (ID: ${id})`);
 
-  // 1. Translation (with improved cleaning)
-  const [newTitle, newDescription, translatedOptions] = await Promise.all([
+  // 1. All Translations (Title, Description, Variants)
+  const [newTitle, newDescription, { variants, options }] = await Promise.all([
       translateText(title, "title"),
       translateText(body_html, "description"),
-      translateOptions(options)
+      translateVariants(product)
   ]);
-  log("TRANSLATION", "Title, description, and options translated and cleaned.");
+  log("TRANSLATION", "Title, description, and variant values translated.");
 
-  // 2. Data Extraction and Generation
-  const deliveryDays = extractDeliveryDays(body_html);
-  log("DELIVERY_INFO", `🚚 Estimated delivery: ${deliveryDays} days`);
-
+  // 2. Data Extraction and Categorization
   const { collectionTitle, productType } = detectCollectionAndType(title, newTitle, newDescription);
   log("CATEGORIZATION", `🧠 Collection: "${collectionTitle}" | Type: "${productType}"`);
-
+  
   const newHandle = generateHandle(title);
-  log("HANDLE_GENERATION", `🔗 English Handle: ${newHandle}`);
-
   const { seoTitle, seoDescription } = generateSEO(newTitle, newDescription);
-  log("SEO_GENERATION", "SEO Title and Description prepared.");
 
-  // 3. Prepare Shopify Payload
+  // 3. Prepare a single, consolidated Shopify Payload
+  const deliveryDays = 21; // **MODIFIED**: Hardcoded as requested.
   const updatedTags = `${tags ? tags + ',' : ''}${collectionTitle},${PROCESSED_TAG}`;
+  
   const payload = {
-    id,
-    title: newTitle,
-    body_html: newDescription,
-    handle: newHandle,
-    product_type: productType,
-    tags: updatedTags,
-    options: translatedOptions,
-    collections: [{ title: collectionTitle }], // Assign to collection
-    metafields_global_title_tag: seoTitle,
-    metafields_global_description_tag: seoDescription,
+    product: {
+      id,
+      title: newTitle,
+      body_html: newDescription,
+      handle: newHandle,
+      product_type: productType,
+      tags: updatedTags,
+      variants,
+      options,
+      metafields_global_title_tag: seoTitle,
+      metafields_global_description_tag: seoDescription,
+      metafields: [
+        {
+          key: "delivery_days",
+          namespace: "custom",
+          value: deliveryDays,
+          type: "number_integer"
+        }
+      ]
+    }
   };
   
-  // 4. Update Shopify Product & Metafield
-  await updateShopifyProduct(id, payload);
-  await setMetafield(id, "delivery_days", Number(deliveryDays)); // Ensure value is a number
+  // 4. Update Shopify Product in a single API call
+  await makeShopifyRequest('put', `products/${id}.json`, payload);
+  log("SHOPIFY_UPDATE", `Product ${id} updated with all data.`);
+
+  // 5. Assign to collection in a separate, reliable call
+  await assignProductToCollection(id, collectionTitle);
 
   log("FINISH", `🎯 Product "${newTitle}" (ID: ${id}) processed successfully!`);
 }
 
-
 // =============== API ROUTES (WEBHOOKS) ===============
-app.post("/webhook/product-created", async (req, res) => {
-  log("WEBHOOK_RECEIVED", "Product creation webhook.", "🚀");
-  res.status(200).send("Webhook received. Processing will start."); // Respond immediately
+app.post("/webhook/:type", async (req, res) => {
+  log("WEBHOOK_RECEIVED", `Webhook received for product ${req.params.type}.`, "🚀");
+  res.status(200).send("Webhook received."); // Respond immediately
   try {
     await processProduct(req.body);
   } catch (error) {
-    log("PROCESSING_ERROR", `❌ Error in product-created flow: ${error.message}`, "❌");
+    log("PROCESSING_ERROR", `❌ Error in webhook flow: ${error.message}`, "❌");
   }
 });
 
-app.post("/webhook/product-updated", async (req, res) => {
-  log("WEBHOOK_RECEIVED", "Product update webhook.", "🚀");
-  res.status(200).send("Webhook received. Processing will start."); // Respond immediately
-  try {
-    await processProduct(req.body);
-  } catch (error) {
-    log("PROCESSING_ERROR", `❌ Error in product-updated flow: ${error.message}`, "❌");
-  }
-});
+app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator v6.3 (Final Edition) is running!`));
 
-app.get("/", (_, res) =>
-  res.send(`🚀 eSelect AI Translator & Categorizer v6.2 (Robust Edition) is running!`)
-);
-
-app.listen(PORT, () =>
-  log("SERVER_START", `Server running on port ${PORT} | Store: ${SHOPIFY_STORE_URL}`, "🚀")
-);
+app.listen(PORT, () => log("SERVER_START", `Server running on port ${PORT}`, "🚀"));
