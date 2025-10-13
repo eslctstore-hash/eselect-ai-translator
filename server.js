@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify AI Translator & Copywriter v7.3 (Dynamic Prompt)
+ * Shopify AI Translator & Copywriter v7.4 (Professional Variant Prompt)
  * إعداد: سالم السليمي | https://eselect.store
  * تطوير وتحسين: Gemini AI
  */
@@ -36,9 +36,9 @@ const log = (step, msg, icon = "✅") => {
 async function makeOpenAIRequest(prompt, max_tokens = 1024) {
   try {
     const response = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o", // Upgraded to gpt-4o for better instruction following
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.6,
+      temperature: 0.5, // Slightly lower temperature for more consistent translations
       max_tokens,
     }, { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } });
     return response.data.choices[0].message.content.trim();
@@ -56,7 +56,6 @@ async function createContent(enTitle, enDescription, type = "title") {
   if (type === "title") {
     prompt = `You are a title specialist. Rewrite the following English product title into a concise, impactful, and SEO-friendly Arabic title. It MUST be short, clear, and focus only on the main product identity. **Maximum 60 characters.**\n\nEnglish Title: "${enTitle}"`;
   } else { // 'description' type
-    // **CORRECTED**: New dynamic prompt that focuses on principles, not a fixed template.
     prompt = `You are an expert Arab e-commerce copywriter. Your task is to generate a professional and attractive product description in clean HTML format.
 
     **Inputs:**
@@ -85,44 +84,59 @@ async function createContent(enTitle, enDescription, type = "title") {
   }
   
   const result = await makeOpenAIRequest(prompt);
-  // Clean up markdown code block fences if the AI adds them
   return result.replace(/```html|```/g, "").replace(/"/g, '').trim();
 }
 
-
-// IMPROVED: Robust function to translate options and their values reliably
+// **NEW & IMPROVED**: v7.4 - Professional prompt for variant translation
 async function translateProductOptions(product) {
     if (!product.options || product.options.length === 0 || !product.variants) {
         return { variants: product.variants, options: product.options };
     }
 
     const translationMap = new Map();
+    const multilingualPromptTemplate = (items, context) => `
+      You are a specialized translation model for e-commerce. Your task is to translate a list of product option ${context} into MODERN STANDARD ARABIC.
+      The input language can be anything (English, Spanish, French, Chinese, etc.) or a mix of technical terms.
 
+      **Rules:**
+      1.  Translate all text to ARABIC.
+      2.  **DO NOT** translate technical specifications, model numbers, or units (e.g., "USB", "12mm", "4GB", "256GB" should remain as they are).
+      3.  Translate generic terms like "Type 1", "Default Title", "Standard" into their correct Arabic equivalents (e.g., "النوع 1", "الخيار الافتراضي", "قياسي").
+      4.  Return ONLY the translated list, separated by '||', in the exact same order as the input.
+
+      **Input ${context} to translate:**
+      ${items.join(' || ')}
+    `;
+
+    // 1. Translate Option Names
     const optionNames = product.options.map(opt => opt.name);
-    const namesPrompt = `Translate only the following option names, separated by '||':\n${optionNames.join(' || ')}`;
+    const namesPrompt = multilingualPromptTemplate(optionNames, 'names');
     const translatedNamesStr = await makeOpenAIRequest(namesPrompt, 150);
     const translatedNames = translatedNamesStr.split('||').map(n => n.trim());
     
+    // 2. Translate Option Values for each option separately
     for (let i = 0; i < optionNames.length; i++) {
-        const optionName = optionNames[i];
         const uniqueValues = [...new Set(product.variants.map(v => v[`option${i + 1}`]).filter(Boolean))];
         
         if (uniqueValues.length > 0) {
-            const valuesPrompt = `Translate only the following values for "${optionName}", separated by '||':\n${uniqueValues.join(' || ')}`;
+            const valuesPrompt = multilingualPromptTemplate(uniqueValues, `values for "${optionNames[i]}"`);
             const translatedValuesStr = await makeOpenAIRequest(valuesPrompt, 400);
             const translatedValues = translatedValuesStr.split('||').map(v => v.trim());
             
             uniqueValues.forEach((val, index) => {
-                if (translatedValues[index]) {
+                if (translatedValues[index] && translatedValues.length === uniqueValues.length) {
                     translationMap.set(val, translatedValues[index]);
+                } else {
+                    translationMap.set(val, val); // Fallback to original value if translation fails
                 }
             });
         }
     }
 
+    // 3. Rebuild product options and variants with translated values
     const newOptions = product.options.map((opt, i) => ({
         ...opt,
-        name: translatedNames[i] || opt.name,
+        name: (translatedNames[i] && translatedNames.length === optionNames.length) ? translatedNames[i] : opt.name,
     }));
 
     const newVariants = product.variants.map(variant => ({
@@ -217,6 +231,6 @@ app.post("/webhook/:type", async (req, res) => {
   }
 });
 
-app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator & Copywriter v7.3 is running!`));
+app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator & Copywriter v7.4 is running!`));
 
 app.listen(PORT, () => log("SERVER_START", `Server running on port ${PORT}`, "🚀"));
