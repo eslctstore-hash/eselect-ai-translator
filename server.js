@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify AI Translator & Categorizer v6.3 (Final Edition)
+ * Shopify AI Translator & Categorizer v6.4 (Corrected)
  * إعداد: سالم السليمي | https://eselect.store
  * تطوير وتحسين: Gemini AI
  */
@@ -80,7 +80,7 @@ async function translateText(text, type = "title") {
 }
 
 async function translateVariants(product) {
-    if (!product.options || !product.variants) return product.variants;
+    if (!product.options || !product.variants) return { variants: product.variants, options: product.options };
 
     const translationMap = new Map();
     
@@ -128,6 +128,15 @@ function generateHandle(englishTitle) {
   return englishTitle.toLowerCase().replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 70);
 }
 
+// **CORRECTED**: Re-added the missing generateSEO function
+function generateSEO(title, description) {
+  const cleanDescription = description.replace(/<[^>]+>/g, " ").replace(/\s\s+/g, ' ').trim();
+  return {
+    seoTitle: title.slice(0, 70),
+    seoDescription: cleanDescription.slice(0, 160),
+  };
+}
+
 function detectCollectionAndType(enTitle, arTitle, arDescription) {
   let bestMatch = { title: "منتجات متنوعة", score: 0 };
   const combinedText = `${arTitle} ${arDescription}`;
@@ -136,7 +145,8 @@ function detectCollectionAndType(enTitle, arTitle, arDescription) {
     let currentScore = 0;
     for (const keyword of collection.keywords) {
       const regex = new RegExp(`\\b${keyword}\\b`, "i");
-      if (/[a-zA-Z]/.test(keyword) && enTitle.match(regex)) currentScore += 5;
+      // Give higher weight to English keywords matching the original title
+      if (/[a-zA-Z]/.test(keyword) && enTitle.match(regex)) currentScore += 10;
       if (/[\u0600-\u06FF]/.test(keyword) && combinedText.match(regex)) currentScore += 3;
     }
     if (currentScore > bestMatch.score) {
@@ -186,7 +196,6 @@ async function processProduct(product) {
   
   log("START_PROCESSING", `🚀 Starting processing for: "${title}" (ID: ${id})`);
 
-  // 1. All Translations (Title, Description, Variants)
   const [newTitle, newDescription, { variants, options }] = await Promise.all([
       translateText(title, "title"),
       translateText(body_html, "description"),
@@ -194,15 +203,14 @@ async function processProduct(product) {
   ]);
   log("TRANSLATION", "Title, description, and variant values translated.");
 
-  // 2. Data Extraction and Categorization
   const { collectionTitle, productType } = detectCollectionAndType(title, newTitle, newDescription);
   log("CATEGORIZATION", `🧠 Collection: "${collectionTitle}" | Type: "${productType}"`);
   
   const newHandle = generateHandle(title);
+  // **CORRECTED**: Calling the function correctly
   const { seoTitle, seoDescription } = generateSEO(newTitle, newDescription);
 
-  // 3. Prepare a single, consolidated Shopify Payload
-  const deliveryDays = 21; // **MODIFIED**: Hardcoded as requested.
+  const deliveryDays = 21;
   const updatedTags = `${tags ? tags + ',' : ''}${collectionTitle},${PROCESSED_TAG}`;
   
   const payload = {
@@ -228,11 +236,9 @@ async function processProduct(product) {
     }
   };
   
-  // 4. Update Shopify Product in a single API call
   await makeShopifyRequest('put', `products/${id}.json`, payload);
   log("SHOPIFY_UPDATE", `Product ${id} updated with all data.`);
 
-  // 5. Assign to collection in a separate, reliable call
   await assignProductToCollection(id, collectionTitle);
 
   log("FINISH", `🎯 Product "${newTitle}" (ID: ${id}) processed successfully!`);
@@ -241,7 +247,7 @@ async function processProduct(product) {
 // =============== API ROUTES (WEBHOOKS) ===============
 app.post("/webhook/:type", async (req, res) => {
   log("WEBHOOK_RECEIVED", `Webhook received for product ${req.params.type}.`, "🚀");
-  res.status(200).send("Webhook received."); // Respond immediately
+  res.status(200).send("Webhook received.");
   try {
     await processProduct(req.body);
   } catch (error) {
@@ -249,6 +255,6 @@ app.post("/webhook/:type", async (req, res) => {
   }
 });
 
-app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator v6.3 (Final Edition) is running!`));
+app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator v6.4 (Corrected) is running!`));
 
 app.listen(PORT, () => log("SERVER_START", `Server running on port ${PORT}`, "🚀"));
