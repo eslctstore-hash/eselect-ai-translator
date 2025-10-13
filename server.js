@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify AI Translator & Copywriter v7.1 (Prompt Corrected)
+ * Shopify AI Translator & Copywriter v7.3 (Dynamic Prompt)
  * إعداد: سالم السليمي | https://eselect.store
  * تطوير وتحسين: Gemini AI
  */
@@ -36,9 +36,9 @@ const log = (step, msg, icon = "✅") => {
 async function makeOpenAIRequest(prompt, max_tokens = 1024) {
   try {
     const response = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o-mini",
+      model: "gpt-4o", // Upgraded to gpt-4o for better instruction following
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.65,
+      temperature: 0.6,
       max_tokens,
     }, { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } });
     return response.data.choices[0].message.content.trim();
@@ -56,74 +56,41 @@ async function createContent(enTitle, enDescription, type = "title") {
   if (type === "title") {
     prompt = `You are a title specialist. Rewrite the following English product title into a concise, impactful, and SEO-friendly Arabic title. It MUST be short, clear, and focus only on the main product identity. **Maximum 60 characters.**\n\nEnglish Title: "${enTitle}"`;
   } else { // 'description' type
-    // **CORRECTED**: Replaced single quotes with backticks (`) for multi-line string
-    prompt = `You are an expert Arab e-commerce copywriter and SEO specialist. Your goal is to write a compelling, clean, and professional product description in Arabic.
-    
+    // **CORRECTED**: New dynamic prompt that focuses on principles, not a fixed template.
+    prompt = `You are an expert Arab e-commerce copywriter. Your task is to generate a professional and attractive product description in clean HTML format.
+
     **Inputs:**
     - English Title: "${enTitle}"
     - English Description: "${enDescription}"
 
-    🎯 مهمتك:
-    أنت كاتب محتوى تسويقي محترف متخصص في منتجات التجارة الإلكترونية لمتجر eSelect | إي سيلكت.
-    مهمتك إنشاء وصف عربي فخم وجذاب لأي منتج يُقدّم إليك، باستخدام **تنسيق HTML منسق جاهز للعرض في Shopify** (بدون نجوم ولا Markdown).
-
-    🧠 القواعد الأساسية:
-    1. لا تترجم حرفيًا — أعد صياغة المحتوى بأسلوب تسويقي عربي فخم وواضح.
-    2. احذف أي تحيات أو عبارات عن الشحن أو التواصل.
-    3. استخدم لغة عصرية، راقية، وسهلة الفهم.
-    4. اجعل الأسلوب متناسقًا مع فئة المنتج (عطور، إكسسوارات، أجهزة، منتجات تجميل...).
-    5. استخدم الرموز التعبيرية المناسبة داخل النص HTML لتجميل العرض، مع الالتزام بالتوازن.
-    6. لا تضف عنوان رئيسي للمنتج في النص، فقط الوصف والمحتوى.
+    **Your Generation Principles:**
+    1.  **Analyze and Extract:** Read the English inputs carefully and identify ALL relevant features, technical specifications, and package contents.
+    2.  **Rewrite, Don't Translate:** Craft new sentences in an elegant and persuasive Arabic marketing style.
+    3.  **Dynamic Lists:** The number of bullet points in each list MUST match the number of details you extract. If a product has 7 features, you must create 7 list items. If it has 2, create 2.
+    4.  **Omit Empty Sections:** If you cannot find any information for a section (e.g., no package contents are mentioned), you MUST omit the entire HTML section for it (the heading and the list).
+    5.  **No Fluff:** Strictly remove all greetings, brand stories, contact info, and emojis.
+    6.  **Output Format:** Generate only the clean HTML code based on the principles below.
 
     ---
 
-    🩵 **هيكل HTML النهائي المطلوب:**
-
-    اكتب الناتج مباشرة بتنسيق HTML كما يلي:
-
-    \`\`\`html
-    <p>✨ [فقرة افتتاحية قصيرة ومشوقة تصف المنتج بلغة تسويقية جذابة ومليئة بالإحساس أو الفائدة]</p>
-
-    <h4>💎 المميزات:</h4>
-    <ul>
-      <li>🌸 [الميزة الأولى]</li>
-      <li>💫 [الميزة الثانية]</li>
-      <li>🌿 [الميزة الثالثة]</li>
-      <li>💋 [الميزة الرابعة]</li>
-      <li>🌟 [الميزة الخامسة]</li>
-    </ul>
-
-    <h4>📐 المواصفات:</h4>
-    <ul>
-      <li>المادة: [المادة الأساسية]</li>
-      <li>اللون: [اللون أو النمط]</li>
-      <li>المعالجة: [إن وجدت]</li>
-      <li>الشكل / التصميم: [الوصف الجمالي أو الوظيفي]</li>
-      <li>الأبعاد / السعة / الطول: [إن وجدت]</li>
-      <li>الفئة المستهدفة: [رجال / نساء / أطفال / عام]</li>
-      <li>العناصر المميزة: [عنصر التميز أو التصميم الفريد]</li>
-    </ul>
-
-    <h4>🎁 محتويات العبوة:</h4>
-    <ul>
-      <li>[العنصر 1]</li>
-      <li>[العنصر 2]</li>
-    </ul>
-
-    <h4>💝 مناسبة لـ:</h4>
-    <ul>
-      <li>🎀 [المناسبة 1]</li>
-      <li>🌹 [المناسبة 2]</li>
-      <li>💎 [المناسبة 3]</li>
-    </ul>
-    \`\`\``;
+    **Required Content and Structure:**
+    - **Paragraph:** Start with a short, enticing introductory paragraph (\`<p>\`).
+    - **Features Heading:** Use \`<h4>المميزات:</h4>\`.
+    - **Features List:** Below the heading, create a \`<ul>\` list. For every feature you identified, add a \`<li>\` item.
+    - **Specifications Heading:** Use \`<h4>المواصفات:</h4>\`.
+    - **Specifications List:** Below the heading, create a \`<ul>\` list. For every specification you identified (material, color, dimensions, etc.), add a \`<li>\` item.
+    - **Package Contents Heading:** Use \`<h4>محتويات العبوة:</h4>\`.
+    - **Package Contents List:** Below the heading, create a \`<ul>\` list. For every item in the package, add a \`<li>\` item.
+    `;
   }
   
   const result = await makeOpenAIRequest(prompt);
-  return result.replace(/"/g, ''); // Clean up quotes
+  // Clean up markdown code block fences if the AI adds them
+  return result.replace(/```html|```/g, "").replace(/"/g, '').trim();
 }
 
-// **NEW & IMPROVED**: Robust function to translate options and their values reliably
+
+// IMPROVED: Robust function to translate options and their values reliably
 async function translateProductOptions(product) {
     if (!product.options || product.options.length === 0 || !product.variants) {
         return { variants: product.variants, options: product.options };
@@ -131,16 +98,13 @@ async function translateProductOptions(product) {
 
     const translationMap = new Map();
 
-    // 1. Translate Option Names (e.g., Color, Size)
     const optionNames = product.options.map(opt => opt.name);
     const namesPrompt = `Translate only the following option names, separated by '||':\n${optionNames.join(' || ')}`;
     const translatedNamesStr = await makeOpenAIRequest(namesPrompt, 150);
     const translatedNames = translatedNamesStr.split('||').map(n => n.trim());
     
-    // 2. Translate Option Values for each option separately
     for (let i = 0; i < optionNames.length; i++) {
         const optionName = optionNames[i];
-        // Get unique values for this specific option (e.g., for "Color", get "Red", "Blue")
         const uniqueValues = [...new Set(product.variants.map(v => v[`option${i + 1}`]).filter(Boolean))];
         
         if (uniqueValues.length > 0) {
@@ -156,7 +120,6 @@ async function translateProductOptions(product) {
         }
     }
 
-    // 3. Rebuild product options and variants with translated values
     const newOptions = product.options.map((opt, i) => ({
         ...opt,
         name: translatedNames[i] || opt.name,
@@ -254,6 +217,6 @@ app.post("/webhook/:type", async (req, res) => {
   }
 });
 
-app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator & Copywriter v7.1 is running!`));
+app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator & Copywriter v7.3 is running!`));
 
 app.listen(PORT, () => log("SERVER_START", `Server running on port ${PORT}`, "🚀"));
