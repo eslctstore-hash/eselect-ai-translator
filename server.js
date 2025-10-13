@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify AI Translator & Categorizer v6.4 (Corrected)
+ * Shopify AI Translator & Categorizer v6.5.1 (Final Confirmed)
  * إعداد: سالم السليمي | https://eselect.store
  * تطوير وتحسين: Gemini AI
  */
@@ -84,12 +84,10 @@ async function translateVariants(product) {
 
     const translationMap = new Map();
     
-    // Translate option names
     const optionNames = product.options.map(opt => opt.name).join(' || ');
     const translatedNamesStr = await makeOpenAIRequest(`Translate these option names separated by '||': "${optionNames}"`, 100);
     const translatedNames = translatedNamesStr.split('||').map(n => n.trim());
 
-    // Collect all unique option values
     const uniqueValues = new Set();
     product.variants.forEach(variant => {
         if (variant.option1) uniqueValues.add(variant.option1);
@@ -107,7 +105,6 @@ async function translateVariants(product) {
         });
     }
 
-    // Apply translations
     const translatedVariants = product.variants.map(variant => ({
         ...variant,
         option1: translationMap.get(variant.option1) || variant.option1,
@@ -128,7 +125,6 @@ function generateHandle(englishTitle) {
   return englishTitle.toLowerCase().replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 70);
 }
 
-// **CORRECTED**: Re-added the missing generateSEO function
 function generateSEO(title, description) {
   const cleanDescription = description.replace(/<[^>]+>/g, " ").replace(/\s\s+/g, ' ').trim();
   return {
@@ -145,7 +141,6 @@ function detectCollectionAndType(enTitle, arTitle, arDescription) {
     let currentScore = 0;
     for (const keyword of collection.keywords) {
       const regex = new RegExp(`\\b${keyword}\\b`, "i");
-      // Give higher weight to English keywords matching the original title
       if (/[a-zA-Z]/.test(keyword) && enTitle.match(regex)) currentScore += 10;
       if (/[\u0600-\u06FF]/.test(keyword) && combinedText.match(regex)) currentScore += 3;
     }
@@ -207,7 +202,6 @@ async function processProduct(product) {
   log("CATEGORIZATION", `🧠 Collection: "${collectionTitle}" | Type: "${productType}"`);
   
   const newHandle = generateHandle(title);
-  // **CORRECTED**: Calling the function correctly
   const { seoTitle, seoDescription } = generateSEO(newTitle, newDescription);
 
   const deliveryDays = 21;
@@ -229,8 +223,9 @@ async function processProduct(product) {
         {
           key: "delivery_days",
           namespace: "custom",
-          value: deliveryDays,
-          type: "number_integer"
+          // **CORRECTED**: Sending the value as a String to match the text field in Shopify.
+          value: String(deliveryDays),
+          type: "single_line_text_field"
         }
       ]
     }
@@ -255,6 +250,6 @@ app.post("/webhook/:type", async (req, res) => {
   }
 });
 
-app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator v6.4 (Corrected) is running!`));
+app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator v6.5.1 (Final Confirmed) is running!`));
 
 app.listen(PORT, () => log("SERVER_START", `Server running on port ${PORT}`, "🚀"));
