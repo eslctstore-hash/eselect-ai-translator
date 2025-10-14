@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify AI Translator & Copywriter v7.5 (Batch Update Feature)
+ * Shopify AI Translator & Copywriter v7.6 (Active Products Filter)
  * إعداد: سالم السليمي | https://eselect.store
  * تطوير وتحسين: Gemini AI
  */
@@ -21,7 +21,7 @@ const {
   SHOPIFY_ACCESS_TOKEN,
   SHOPIFY_STORE_URL,
   PORT = 3000,
-  BATCH_UPDATE_SECRET, // **NEW**: Environment variable for securing the batch update endpoint
+  BATCH_UPDATE_SECRET, // Environment variable for securing the batch update endpoint
 } = process.env;
 const PROCESSED_TAG = "ai-processed";
 
@@ -69,7 +69,7 @@ async function createContent(enTitle, enDescription, type = "title") {
     3.  **Dynamic Lists:** The number of bullet points in each list MUST match the number of details you extract.
     4.  **Omit Empty Sections:** If you cannot find any information for a section, you MUST omit the entire HTML section for it.
     5.  **No Fluff:** Strictly remove all greetings, brand stories, contact info, and emojis.
-    6.  **Output Format:** Generate only the clean HTML code.
+    6.  **Output Format:** Generate only the clean HTML code based on the principles below.
 
     ---
 
@@ -174,8 +174,6 @@ async function updateShopifyProduct(productId, payload) {
 async function processProduct(product, isBatch = false) {
   const { id, title: enTitle, body_html: enDescription, tags } = product;
   
-  // In batch mode, we might want to re-process items. For now, we skip if tagged.
-  // To re-process everything, you would remove this check for batch runs.
   if (tags && tags.includes(PROCESSED_TAG)) {
     log("LOOP_PREVENTION", `🔵 Skipping already processed product ${id}.`, "🔵");
     return;
@@ -240,15 +238,16 @@ app.get("/batch-update", async (req, res) => {
     }
 
     // 2. Respond immediately to prevent timeout
-    res.status(200).send("Batch update process initiated. Check server logs for progress. This may take a long time.");
-    log("BATCH_START", "🚀 Batch update process has been successfully initiated.", "🚀");
+    res.status(200).send("Batch update process for ACTIVE products has been initiated. Check server logs for progress.");
+    log("BATCH_START", "🚀 Batch update process for ACTIVE products has been successfully initiated.", "🚀");
 
     // 3. Run the process in the background
     (async () => {
         try {
             let nextPageInfo = null;
             let productCount = 0;
-            const initialUrl = `${SHOPIFY_STORE_URL}/admin/api/2024-07/products.json?limit=50`;
+            // **MODIFIED**: Added 'status=active' to fetch only active products.
+            const initialUrl = `${SHOPIFY_STORE_URL}/admin/api/2024-07/products.json?limit=50&status=active`;
 
             const makeRequest = async (url) => {
                 const response = await axios.get(url, { headers: { 'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN }});
@@ -271,7 +270,7 @@ app.get("/batch-update", async (req, res) => {
             while (products.length > 0) {
                 for (const product of products) {
                     productCount++;
-                    log("BATCH_PROGRESS", `Processing product ${productCount}: ${product.title}`);
+                    log("BATCH_PROGRESS", `Processing ACTIVE product ${productCount}: ${product.title}`);
                     await processProduct(product, true);
                     // **CRITICAL**: Wait for half a second to respect API rate limits
                     await new Promise(resolve => setTimeout(resolve, 500));
@@ -283,7 +282,7 @@ app.get("/batch-update", async (req, res) => {
                 }
             }
 
-            log("BATCH_COMPLETE", `✅ Batch update finished. Processed ${productCount} products.`, "✅");
+            log("BATCH_COMPLETE", `✅ Batch update finished. Processed ${productCount} active products.`, "✅");
 
         } catch (error) {
             log("BATCH_ERROR", `❌ A critical error occurred during the batch update: ${error.message}`, "❌");
@@ -292,6 +291,6 @@ app.get("/batch-update", async (req, res) => {
 });
 
 
-app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator & Copywriter v7.5 is running!`));
+app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator & Copywriter v7.6 is running!`));
 
 app.listen(PORT, () => log("SERVER_START", `Server running on port ${PORT}`, "🚀"));
