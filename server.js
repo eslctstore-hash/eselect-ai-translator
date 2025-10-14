@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify AI Translator & Copywriter v7.6 (Active Products Filter)
+ * Shopify AI Translator & Copywriter v7.7 (Duplicate Variant Fix)
  * إعداد: سالم السليمي | https://eselect.store
  * تطوير وتحسين: Gemini AI
  */
@@ -100,8 +100,8 @@ async function translateProductOptions(product) {
 
       **Rules:**
       1.  Translate all text to ARABIC.
-      2.  **DO NOT** translate technical specifications (e.g., "USB", "12mm", "4GB").
-      3.  Translate generic terms like "Type 1", "Default Title" into their correct Arabic equivalents (e.g., "النوع 1", "الخيار الافتراضي").
+      2.  **DO NOT** translate technical specifications, model numbers, or units (e.g., "USB", "12mm", "4GB", "256GB" should remain as they are).
+      3.  Translate generic terms like "Type 1", "Default Title", "Standard" into their correct Arabic equivalents (e.g., "النوع 1", "الخيار الافتراضي", "قياسي").
       4.  Return ONLY the translated list, separated by '||', in the exact same order as the input.
 
       **Input ${context} to translate:**
@@ -136,12 +136,26 @@ async function translateProductOptions(product) {
         name: (translatedNames[i] && translatedNames.length === optionNames.length) ? translatedNames[i] : opt.name,
     }));
 
-    const newVariants = product.variants.map(variant => ({
+    let newVariants = product.variants.map(variant => ({
         ...variant,
         option1: translationMap.get(variant.option1) || variant.option1,
         option2: translationMap.get(variant.option2) || variant.option2,
         option3: translationMap.get(variant.option3) || variant.option3,
     }));
+    
+    // **NEW**: Handle potential duplicate variant names after translation
+    const seenOptions = new Set();
+    const finalVariants = [];
+    for (const variant of newVariants) {
+        const optionKey = [variant.option1, variant.option2, variant.option3].filter(Boolean).join(' / ');
+        if (!seenOptions.has(optionKey)) {
+            seenOptions.add(optionKey);
+            finalVariants.push(variant);
+        } else {
+            log('DUPLICATE_VARIANT', `Skipping duplicate variant detected after translation: "${optionKey}" for product ID ${product.id}`, '⚠️');
+        }
+    }
+    newVariants = finalVariants;
 
     return { variants: newVariants, options: newOptions };
 }
@@ -166,7 +180,12 @@ async function updateShopifyProduct(productId, payload) {
   } catch (err) {
     const errorMessage = err.response ? JSON.stringify(err.response.data) : err.message;
     log("SHOPIFY_ERROR", `❌ API call to update product failed: ${errorMessage}`, "❌");
-    throw new Error(`Shopify API call failed`);
+    // **MODIFIED**: Do not throw error on variant issues in batch mode to allow process to continue
+    if (String(errorMessage).includes("already exists")) {
+        log('VARIANT_ERROR', `Continuing batch process after duplicate variant error on product ${productId}.`, '⚠️');
+    } else {
+        throw new Error(`Shopify API call failed`);
+    }
   }
 }
 
@@ -174,47 +193,59 @@ async function updateShopifyProduct(productId, payload) {
 async function processProduct(product, isBatch = false) {
   const { id, title: enTitle, body_html: enDescription, tags } = product;
   
-  if (tags && tags.includes(PROCESSED_TAG)) {
-    log("LOOP_PREVENTION", `🔵 Skipping already processed product ${id}.`, "🔵");
+  // To re-process everything, you would remove this check for batch runs.
+  if (tags && tags.includes(PROCESSED_TAG) && !isBatch) { // Only skip on webhooks, not on batch
+    log("LOOP_PREVENTION", `🔵 Skipping already processed product ${id} on webhook.`, "🔵");
     return;
   }
   
-  log("START_PROCESSING", `🚀 Starting content generation for: "${enTitle}"`);
+  log("START_PROCESSING", `🚀 Starting content generation for: "${enTitle}" (ID: ${id})`);
 
-  const [newTitle, newDescription, { variants, options }] = await Promise.all([
-      createContent(enTitle, null, "title"),
-      createContent(enTitle, enDescription, "description"),
-      translateProductOptions(product)
-  ]);
-  log("CONTENT_GENERATION", "Title, description, and variant values created/translated.");
+  try {
+    const [newTitle, newDescription, { variants, options }] = await Promise.all([
+        createContent(enTitle, null, "title"),
+        createContent(enTitle, enDescription, "description"),
+        translateProductOptions(product)
+    ]);
+    log("CONTENT_GENERATION", "Title, description, and variant values created/translated.");
 
-  const newHandle = generateHandle(enTitle);
-  const { seoTitle, seoDescription } = generateSEO(newTitle, newDescription);
-  
-  const deliveryDays = 21;
-  const updatedTags = `${tags ? tags.split(',').filter(t => t.trim() !== PROCESSED_TAG).join(',') : ''},${PROCESSED_TAG}`;
-  
-  const payload = {
-    id,
-    title: newTitle,
-    body_html: newDescription,
-    handle: newHandle,
-    tags: updatedTags,
-    variants,
-    options,
-    metafields_global_title_tag: seoTitle,
-    metafields_global_description_tag: seoDescription,
-    metafields: [{
-      key: "delivery_days",
-      namespace: "custom",
-      value: String(deliveryDays),
-      type: "single_line_text_field"
-    }]
-  };
-  
-  await updateShopifyProduct(id, payload);
+    const newHandle = generateHandle(enTitle);
+    const { seoTitle, seoDescription } = generateSEO(newTitle, newDescription);
+    
+    const deliveryDays = 21;
+    // Ensure we don't duplicate the processed tag
+    const originalTags = tags ? tags.split(',').map(t => t.trim()).filter(t => t && t !== PROCESSED_TAG) : [];
+    originalTags.push(PROCESSED_TAG);
+    const updatedTags = [...new Set(originalTags)].join(',');
+    
+    const payload = {
+      id,
+      title: newTitle,
+      body_html: newDescription,
+      handle: newHandle,
+      tags: updatedTags,
+      variants,
+      options,
+      metafields_global_title_tag: seoTitle,
+      metafields_global_description_tag: seoDescription,
+      metafields: [{
+        key: "delivery_days",
+        namespace: "custom",
+        value: String(deliveryDays),
+        type: "single_line_text_field"
+      }]
+    };
+    
+    await updateShopifyProduct(id, payload);
 
-  log("FINISH", `🎯 Product "${newTitle}" (ID: ${id}) processed successfully!`);
+    log("FINISH", `🎯 Product "${newTitle}" (ID: ${id}) processed successfully!`);
+  } catch(error) {
+      if (isBatch) {
+          log('BATCH_ITEM_ERROR', `Could not process product ${id} due to error: ${error.message}. Continuing batch.`, '❌');
+      } else {
+          throw error; // Rethrow error if it's a single webhook
+      }
+  }
 }
 
 // =============== API ROUTES (WEBHOOKS & BATCH) ===============
@@ -222,57 +253,62 @@ app.post("/webhook/:type", async (req, res) => {
   log("WEBHOOK_RECEIVED", `Webhook received for product ${req.params.type}.`, "🚀");
   res.status(200).send("Webhook received.");
   try {
-    await processProduct(req.body);
+    // For webhooks, we don't want to re-process tagged items.
+    if (req.body.tags && req.body.tags.includes(PROCESSED_TAG)) {
+        log("LOOP_PREVENTION", `🔵 Skipping already processed product ${req.body.id} on webhook.`, "🔵");
+        return;
+    }
+    await processProduct(req.body, false);
   } catch (error) {
     log("PROCESSING_ERROR", `❌ Error in webhook flow: ${error.message}`, "❌");
   }
 });
 
-// **NEW BATCH UPDATE ENDPOINT**
 app.get("/batch-update", async (req, res) => {
-    // 1. Security Check
-    const { secret } = req.query;
+    const { secret, reprocess } = req.query;
     if (!BATCH_UPDATE_SECRET || secret !== BATCH_UPDATE_SECRET) {
         log("BATCH_SECURITY", "❌ Unauthorized batch update attempt.", "❌");
         return res.status(401).send("Unauthorized");
     }
 
-    // 2. Respond immediately to prevent timeout
     res.status(200).send("Batch update process for ACTIVE products has been initiated. Check server logs for progress.");
-    log("BATCH_START", "🚀 Batch update process for ACTIVE products has been successfully initiated.", "🚀");
+    log("BATCH_START", "🚀 Batch update process initiated.", "🚀");
 
-    // 3. Run the process in the background
     (async () => {
         try {
             let nextPageInfo = null;
             let productCount = 0;
-            // **MODIFIED**: Added 'status=active' to fetch only active products.
             const initialUrl = `${SHOPIFY_STORE_URL}/admin/api/2024-07/products.json?limit=50&status=active`;
 
             const makeRequest = async (url) => {
                 const response = await axios.get(url, { headers: { 'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN }});
                 const linkHeader = response.headers.link;
+                nextPageInfo = null;
                 if (linkHeader) {
                     const nextLink = linkHeader.split(',').find(s => s.includes('rel="next"'));
                     if (nextLink) {
                         nextPageInfo = nextLink.match(/<(.*?)>/)[1];
-                    } else {
-                        nextPageInfo = null;
                     }
-                } else {
-                    nextPageInfo = null;
                 }
                 return response.data.products;
             };
 
             let products = await makeRequest(initialUrl);
 
-            while (products.length > 0) {
+            while (products && products.length > 0) {
                 for (const product of products) {
                     productCount++;
-                    log("BATCH_PROGRESS", `Processing ACTIVE product ${productCount}: ${product.title}`);
-                    await processProduct(product, true);
-                    // **CRITICAL**: Wait for half a second to respect API rate limits
+                    log("BATCH_PROGRESS", `Processing product ${productCount}: ${product.title}`);
+                    
+                    // Logic to re-process or skip
+                    const shouldProcess = reprocess === 'true' || !product.tags || !product.tags.includes(PROCESSED_TAG);
+
+                    if (shouldProcess) {
+                        await processProduct(product, true);
+                    } else {
+                        log("BATCH_SKIP", `Skipping already processed product ${product.id} (reprocess=false).`, '🔵');
+                    }
+                    
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
                 if (nextPageInfo) {
@@ -281,9 +317,7 @@ app.get("/batch-update", async (req, res) => {
                     products = [];
                 }
             }
-
-            log("BATCH_COMPLETE", `✅ Batch update finished. Processed ${productCount} active products.`, "✅");
-
+            log("BATCH_COMPLETE", `✅ Batch update finished. Inspected ${productCount} active products.`, "✅");
         } catch (error) {
             log("BATCH_ERROR", `❌ A critical error occurred during the batch update: ${error.message}`, "❌");
         }
@@ -291,6 +325,6 @@ app.get("/batch-update", async (req, res) => {
 });
 
 
-app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator & Copywriter v7.6 is running!`));
+app.get("/", (_, res) => res.send(`🚀 eSelect AI Translator & Copywriter v7.7 is running!`));
 
 app.listen(PORT, () => log("SERVER_START", `Server running on port ${PORT}`, "🚀"));
