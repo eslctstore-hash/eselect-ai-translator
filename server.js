@@ -26,6 +26,19 @@ app.post("/webhook/product-updated", async (req, res) => {
   const product = req.body;
   await log(`[🆕] استلام منتج جديد/محدث: ${product.title}`);
 
+  // التحقق من الحالة (Draft / Archived)
+  if (product.status === "draft" || product.status === "archived") {
+    await log(`[🌓] المنتج أصبح ${product.status} - سيتم إيقاف المنشور مؤقتًا`);
+    const message = `❌ هذا المنتج لم يعد متاحًا مؤقتًا من متجر eSelect.`;
+    await publishToMeta({
+      id: product.id,
+      title: product.title,
+      description: message,
+      images: product.images
+    });
+    return;
+  }
+
   // انتظار الصور إذا لم تكن موجودة
   if (!product.images || product.images.length === 0) {
     await log(`[⏳] لا توجد صور الآن - الانتظار 60 ثانية`);
@@ -37,11 +50,13 @@ app.post("/webhook/product-updated", async (req, res) => {
     }
   }
 
-  // الترجمة والنشر
-  const translated = await translateProduct(product);
-  translated.id = product.id;
-  translated.images = product.images;
-  await publishToMeta(translated);
+  // المنتج نشط - الترجمة والنشر
+  if (product.status === "active") {
+    const translated = await translateProduct(product);
+    translated.id = product.id;
+    translated.images = product.images;
+    await publishToMeta(translated);
+  }
 });
 
 // ===== Webhook: Delete =====
@@ -55,7 +70,6 @@ app.post("/webhook/product-deleted", async (req, res) => {
 // ===== مزامنة يومية =====
 cron.schedule("0 3 * * *", async () => {
   await log("[🔁] بدء المزامنة اليومية...");
-  // يمكن توسيعها لاحقًا لمراجعة كل المنتجات
 });
 
 // ===== Server Start =====
