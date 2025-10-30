@@ -1,6 +1,6 @@
 /**
  * eSelect | إي سيلكت
- * Shopify AI Translator & Copywriter v7.8 (Modalyst Integration)
+ * Shopify AI Translator & Copywriter v7.9 (GraphQL + Smart Option Filter)
  * إعداد: سالم السليمي | https://eselect.store
  * تطوير وتحسين: Gemini AI
  */
@@ -15,7 +15,7 @@ dotenv.config();
 const app = express();
 app.use(bodyParser.json({ limit: "10mb" }));
 
-// =============== CONFIG & ENVIRONMENT VARIABLES ===============
+// =============== CONFIG ===============
 const {
   OPENAI_API_KEY,
   SHOPIFY_ACCESS_TOKEN,
@@ -26,18 +26,18 @@ const {
 
 const PROCESSED_TAG = "ai-processed";
 
-// =============== LOGGER UTILITY ===============
+// =============== LOGGER ===============
 const log = (step, msg, icon = "✅") => {
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${icon} [${step}] :: ${msg}`;
-  fs.appendFileSync("./logs/actions.log", logMessage + "\n");
-  console.log(logMessage);
+  const time = new Date().toISOString();
+  const logLine = `[${time}] ${icon} [${step}] :: ${msg}`;
+  fs.appendFileSync("./logs/actions.log", logLine + "\n");
+  console.log(logLine);
 };
 
-// =============== AI & TRANSLATION HELPERS ===============
+// =============== OPENAI HELPER ===============
 async function makeOpenAIRequest(prompt, max_tokens = 1024) {
   try {
-    const response = await axios.post(
+    const res = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-4o",
@@ -47,68 +47,50 @@ async function makeOpenAIRequest(prompt, max_tokens = 1024) {
       },
       { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
     );
-    return response.data.choices[0].message.content.trim();
+    return res.data.choices[0].message.content.trim();
   } catch (err) {
-    const errorMessage = err.response
-      ? JSON.stringify(err.response.data)
-      : err.message;
-    log("AI_ERROR", `❌ OpenAI API call failed: ${errorMessage}`, "❌");
-    throw new Error("Failed to communicate with OpenAI");
+    const e = err.response ? JSON.stringify(err.response.data) : err.message;
+    log("AI_ERROR", e, "❌");
+    throw new Error("OpenAI call failed");
   }
 }
 
+// =============== CONTENT GENERATION ===============
 async function createContent(enTitle, enDescription, type = "title") {
   if (!enTitle) return "";
-  let prompt;
-
-  if (type === "title") {
-    prompt = `You are a title specialist. Rewrite the following English product title into a concise, impactful, and SEO-friendly Arabic title. It MUST be short, clear, and focus only on the main product identity. **Maximum 60 characters.**\n\nEnglish Title: "${enTitle}"`;
-  } else {
-    prompt = `You are an expert Arab e-commerce copywriter. Your task is to generate a professional and attractive product description in clean HTML format.
-
-**Inputs:**
-- English Title: "${enTitle}"
-- English Description: "${enDescription}"
-
-**Your Generation Principles:**
-1. Read and extract all product features and specs.
-2. Rewrite in an elegant Arabic marketing tone (no translation).
-3. Keep dynamic bullet points for lists.
-4. Omit empty sections.
-5. No greetings, no brand stories, no emojis.
-6. Output only clean HTML.
-
-Structure:
-<p>Intro paragraph</p>
-<h4>المميزات:</h4><ul><li>...</li></ul>
-<h4>المواصفات:</h4><ul><li>...</li></ul>
-<h4>محتويات العبوة:</h4><ul><li>...</li></ul>`;
-  }
-
+  const prompt =
+    type === "title"
+      ? `Rewrite this English product title into a concise Arabic title (≤60 chars), SEO-friendly:\n"${enTitle}"`
+      : `Generate Arabic HTML description from:\nTitle: "${enTitle}"\n\nDescription:\n"${enDescription}"`;
   const result = await makeOpenAIRequest(prompt);
   return result.replace(/```html|```/g, "").replace(/"/g, "").trim();
 }
 
+// =============== OPTION TRANSLATION ===============
 async function translateProductOptions(product) {
-  if (!product.options || product.options.length === 0 || !product.variants) {
+  if (!product.options || product.options.length === 0 || !product.variants)
     return { variants: product.variants, options: product.options };
-  }
 
   const translationMap = new Map();
-  const multilingualPromptTemplate = (items, context) => `
-    Translate the following product option ${context} into MODERN STANDARD ARABIC.
-    - Keep units (e.g., 12mm, 256GB) unchanged.
-    - Translate generic words (Type, Default Title) properly.
-    Return items separated by '||' in the same order.
 
-    Input:
-    ${items.join(" || ")}
-  `;
+  const shouldKeepOriginal = val => {
+    // إذا كان حرف أو رقم فقط أو مزيج بسيط مثل C3 أو A1
+    return /^[A-Za-z0-9]{1,3}$/.test(val);
+  };
 
-  const optionNames = product.options.map(opt => opt.name);
-  const namesPrompt = multilingualPromptTemplate(optionNames, "names");
-  const translatedNamesStr = await makeOpenAIRequest(namesPrompt, 150);
-  const translatedNames = translatedNamesStr.split("||").map(n => n.trim());
+  const multilingualPrompt = (items, context) => `
+Translate the following product option ${context} into MODERN STANDARD ARABIC.
+- Keep units unchanged (e.g. 256GB, 12mm)
+- Keep single letters/numbers as-is.
+Return items separated by "||" in the same order.
+Input:
+${items.join(" || ")}
+`;
+
+  const optionNames = product.options.map(o => o.name);
+  const namesPrompt = multilingualPrompt(optionNames, "names");
+  const translatedNamesStr = await makeOpenAIRequest(namesPrompt, 200);
+  const translatedNames = translatedNamesStr.split("||").map(t => t.trim());
 
   for (let i = 0; i < optionNames.length; i++) {
     const uniqueValues = [
@@ -116,17 +98,13 @@ async function translateProductOptions(product) {
     ];
 
     if (uniqueValues.length > 0) {
-      const valuesPrompt = multilingualPromptTemplate(
-        uniqueValues,
-        `values for "${optionNames[i]}"`
-      );
+      const valuesPrompt = multilingualPrompt(uniqueValues, `values for "${optionNames[i]}"`);
       const translatedValuesStr = await makeOpenAIRequest(valuesPrompt, 400);
-      const translatedValues = translatedValuesStr
-        .split("||")
-        .map(v => v.trim());
+      const translatedValues = translatedValuesStr.split("||").map(v => v.trim());
 
-      uniqueValues.forEach((val, index) => {
-        translationMap.set(val, translatedValues[index] || val);
+      uniqueValues.forEach((val, idx) => {
+        const translated = translatedValues[idx] || val;
+        translationMap.set(val, shouldKeepOriginal(val) ? val : translated);
       });
     }
   }
@@ -139,29 +117,23 @@ async function translateProductOptions(product) {
         : opt.name
   }));
 
-  const seen = new Set();
+  const seenCombos = new Set();
   const newVariants = [];
-  for (const variant of product.variants) {
-    const optionKey = [
-      variant.option1,
-      variant.option2,
-      variant.option3
-    ].filter(Boolean).join(" / ");
 
-    if (!seen.has(optionKey)) {
-      seen.add(optionKey);
-      newVariants.push({
-        ...variant,
-        option1: translationMap.get(variant.option1) || variant.option1,
-        option2: translationMap.get(variant.option2) || variant.option2,
-        option3: translationMap.get(variant.option3) || variant.option3
-      });
+  for (const variant of product.variants) {
+    const translatedVariant = { ...variant };
+    ["option1", "option2", "option3"].forEach(k => {
+      if (variant[k])
+        translatedVariant[k] = translationMap.get(variant[k]) || variant[k];
+    });
+    const combo = [translatedVariant.option1, translatedVariant.option2, translatedVariant.option3]
+      .filter(Boolean)
+      .join("/");
+    if (!seenCombos.has(combo)) {
+      seenCombos.add(combo);
+      newVariants.push(translatedVariant);
     } else {
-      log(
-        "DUPLICATE_VARIANT",
-        `Skipping duplicate variant: "${optionKey}" for product ${product.id}`,
-        "⚠️"
-      );
+      log("DUPLICATE_FIX", `⚠️ Skipped duplicate variant after translation: ${combo}`);
     }
   }
 
@@ -169,219 +141,174 @@ async function translateProductOptions(product) {
 }
 
 // =============== SEO HELPERS ===============
-function generateHandle(englishTitle) {
-  return englishTitle
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .slice(0, 70);
-}
+const generateHandle = t =>
+  t.toLowerCase().replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 70);
 
-function generateSEO(title, description) {
-  const cleanDescription = description
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s\s+/g, " ")
-    .trim();
+const generateSEO = (title, desc) => {
+  const clean = desc.replace(/<[^>]+>/g, " ").replace(/\s\s+/g, " ").trim();
   return {
     seoTitle: title.slice(0, 70),
-    seoDescription: cleanDescription.slice(0, 160)
+    seoDescription: clean.slice(0, 160)
   };
-}
+};
 
-// =============== SHOPIFY API HELPER ===============
+// =============== SHOPIFY UPDATE ===============
 async function updateShopifyProduct(productId, payload) {
-  const url = `${SHOPIFY_STORE_URL}/admin/api/2024-07/products/${productId}.json`;
+  const restUrl = `${SHOPIFY_STORE_URL}/admin/api/2024-07/products/${productId}.json`;
   try {
     await axios.put(
-      url,
+      restUrl,
       { product: payload },
       { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } }
     );
     log("SHOPIFY_UPDATE", `Product ${productId} updated successfully.`);
   } catch (err) {
-    const errorMessage = err.response
-      ? JSON.stringify(err.response.data)
-      : err.message;
+    const errorMessage = err.response ? JSON.stringify(err.response.data) : err.message;
     log("SHOPIFY_ERROR", `❌ Shopify update failed: ${errorMessage}`, "❌");
+
+    // GraphQL fallback for 100+ variants
+    if (errorMessage.includes("more than 100 variants")) {
+      try {
+        log("GRAPHQL_FALLBACK", `⚙️ Switching to GraphQL update for product ${productId}...`, "⚙️");
+        const mutation = `
+          mutation productUpdate($input: ProductInput!) {
+            productUpdate(input: $input) {
+              product { id title }
+              userErrors { field message }
+            }
+          }`;
+        const variables = {
+          input: {
+            id: `gid://shopify/Product/${productId}`,
+            title: payload.title,
+            bodyHtml: payload.body_html,
+            tags: payload.tags,
+            metafields: payload.metafields,
+            metafieldsGlobalTitleTag: payload.metafields_global_title_tag,
+            metafieldsGlobalDescriptionTag: payload.metafields_global_description_tag
+          }
+        };
+        await axios.post(
+          `${SHOPIFY_STORE_URL}/admin/api/2024-07/graphql.json`,
+          { query: mutation, variables },
+          { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } }
+        );
+        log("GRAPHQL_UPDATE", `✅ Product ${productId} updated successfully via GraphQL.`);
+      } catch (gqlErr) {
+        log("GRAPHQL_ERROR", `❌ GraphQL update failed: ${gqlErr.message}`, "❌");
+      }
+    }
   }
 }
 
-// =============== MAIN PRODUCT PROCESSING LOGIC ===============
+// =============== MAIN PROCESS ===============
 async function processProduct(product, isBatch = false) {
-  const { id, title: enTitle, body_html: enDescription, tags } = product;
-
-  if (tags && tags.includes(PROCESSED_TAG) && !isBatch) {
-    log("LOOP_PREVENTION", `🔵 Skipping already processed product ${id}`, "🔵");
-    return;
-  }
+  const { id, title: enTitle, body_html: enDesc, tags } = product;
+  if (tags && tags.includes(PROCESSED_TAG) && !isBatch) return;
 
   log("START_PROCESSING", `🚀 Processing product: "${enTitle}" (ID: ${id})`);
-
   try {
-    const [newTitle, newDescription, { variants, options }] =
-      await Promise.all([
-        createContent(enTitle, null, "title"),
-        createContent(enTitle, enDescription, "description"),
-        translateProductOptions(product)
-      ]);
+    const [newTitle, newDesc, { variants, options }] = await Promise.all([
+      createContent(enTitle, null, "title"),
+      createContent(enTitle, enDesc, "description"),
+      translateProductOptions(product)
+    ]);
 
-    const newHandle = generateHandle(enTitle);
-    const { seoTitle, seoDescription } = generateSEO(newTitle, newDescription);
+    const handle = generateHandle(enTitle);
+    const { seoTitle, seoDescription } = generateSEO(newTitle, newDesc);
 
-    // ======== 🕒 Modalyst Delivery & Return Policy Integration ========
-    let deliveryDays = "14-21"; // default fallback
-    let returnPolicy = "14 يوماً"; // default fallback
-
+    let deliveryDays = "14-21", returnPolicy = "14 يوماً";
     try {
-      const modalystData = (product?.body_html || "").toLowerCase();
-      const processingMatch = modalystData.match(
-        /processing time.*?(\d+)\s*-\s*(\d+)/i
-      );
-      const deliveryMatch = modalystData.match(
-        /estimated delivery.*?(\d+)\s*-\s*(\d+)/i
-      );
-      const returnMatch = modalystData.match(/(\d+)\s*day return/i);
-
-      if (processingMatch && deliveryMatch) {
-        const minDays =
-          parseInt(processingMatch[1]) + parseInt(deliveryMatch[1]);
-        const maxDays =
-          parseInt(processingMatch[2]) + parseInt(deliveryMatch[2]);
-        deliveryDays = `${minDays}-${maxDays}`;
-      } else if (deliveryMatch) {
-        deliveryDays = `${deliveryMatch[1]}-${deliveryMatch[2]}`;
-      }
-
-      if (returnMatch) {
-        returnPolicy = `${returnMatch[1]} يوماً`;
-      }
-
-      log(
-        "DELIVERY_INFO",
-        `🕒 Delivery days: ${deliveryDays} | Return policy: ${returnPolicy}`
-      );
+      const html = (product?.body_html || "").toLowerCase();
+      const proc = html.match(/processing time.*?(\d+)\s*-\s*(\d+)/i);
+      const del = html.match(/estimated delivery.*?(\d+)\s*-\s*(\d+)/i);
+      const ret = html.match(/(\d+)\s*day return/i);
+      if (proc && del)
+        deliveryDays = `${+proc[1] + +del[1]}-${+proc[2] + +del[2]}`;
+      else if (del) deliveryDays = `${del[1]}-${del[2]}`;
+      if (ret) returnPolicy = `${ret[1]} يوماً`;
     } catch (e) {
-      log("DELIVERY_ERROR", `⚠️ Failed to extract delivery info: ${e.message}`);
+      log("DELIVERY_PARSE", e.message, "⚠️");
     }
 
-    // ======== 🏷️ Tags Update ========
-    const originalTags = tags
-      ? tags.split(",").map(t => t.trim()).filter(t => t && t !== PROCESSED_TAG)
-      : [];
-    originalTags.push(PROCESSED_TAG);
-    const updatedTags = [...new Set(originalTags)].join(",");
+    const updatedTags = [...new Set([...(tags?.split(",") || []), PROCESSED_TAG])].join(",");
 
-    // ======== 📦 Shopify Payload ========
     const payload = {
       id,
       title: newTitle,
-      body_html: newDescription,
-      handle: newHandle,
+      body_html: newDesc,
+      handle,
       tags: updatedTags,
       variants,
       options,
       metafields_global_title_tag: seoTitle,
       metafields_global_description_tag: seoDescription,
       metafields: [
-        {
-          key: "delivery_days",
-          namespace: "custom",
-          value: String(deliveryDays),
-          type: "single_line_text_field"
-        },
-        {
-          key: "product_return_policy",
-          namespace: "custom",
-          value: String(returnPolicy),
-          type: "single_line_text_field"
-        }
+        { key: "delivery_days", namespace: "custom", value: deliveryDays, type: "single_line_text_field" },
+        { key: "product_return_policy", namespace: "custom", value: returnPolicy, type: "single_line_text_field" }
       ]
     };
 
     await updateShopifyProduct(id, payload);
     log("FINISH", `🎯 Product "${newTitle}" processed successfully.`);
-  } catch (error) {
-    if (isBatch) {
-      log(
-        "BATCH_ITEM_ERROR",
-        `❌ Error processing product ${id}: ${error.message}`,
-        "❌"
-      );
-    } else {
-      throw error;
-    }
+  } catch (e) {
+    log("PROCESS_ERROR", e.message, "❌");
   }
 }
 
-// =============== API ROUTES ===============
-app.post("/webhook/:type", async (req, res) => {
-  log("WEBHOOK_RECEIVED", `Webhook: ${req.params.type}`, "🚀");
-  res.status(200).send("Webhook received.");
-  try {
-    if (req.body.tags && req.body.tags.includes(PROCESSED_TAG)) return;
-    await processProduct(req.body, false);
-  } catch (error) {
-    log("PROCESSING_ERROR", `❌ Webhook error: ${error.message}`, "❌");
+// =============== ROUTES ===============
+app.post("/webhook/:type", (req, res) => {
+  if (process.env.BATCH_MODE === "true") {
+    log("WEBHOOK_SKIP", "⏭️ Skipping webhook during batch mode.");
+    return res.status(200).send("Batch mode active, skipped.");
   }
+  res.status(200).send("Webhook received.");
+  processProduct(req.body, false).catch(e => log("WEBHOOK_ERROR", e.message, "❌"));
 });
 
-app.get("/batch-update", async (req, res) => {
+app.get("/batch-update", (req, res) => {
   const { secret, reprocess } = req.query;
-  if (!BATCH_UPDATE_SECRET || secret !== BATCH_UPDATE_SECRET)
-    return res.status(401).send("Unauthorized");
+  if (secret !== BATCH_UPDATE_SECRET) return res.status(401).send("Unauthorized");
 
   res.status(200).send("Batch update started.");
-  log("BATCH_START", "🚀 Batch update process started.");
+  process.env.BATCH_MODE = "true";
 
   (async () => {
     try {
-      let nextPageInfo = null;
-      let productCount = 0;
-      const initialUrl = `${SHOPIFY_STORE_URL}/admin/api/2024-07/products.json?limit=50&status=active`;
-
-      const makeRequest = async url => {
-        const response = await axios.get(url, {
-          headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN }
-        });
-        const linkHeader = response.headers.link;
-        nextPageInfo = null;
-        if (linkHeader) {
-          const nextLink = linkHeader.split(",").find(s =>
-            s.includes('rel="next"')
-          );
-          if (nextLink) nextPageInfo = nextLink.match(/<(.*?)>/)[1];
+      let next = null;
+      let count = 0;
+      const baseUrl = `${SHOPIFY_STORE_URL}/admin/api/2024-07/products.json?limit=50&status=active`;
+      const fetchProducts = async url => {
+        const res = await axios.get(url, { headers: { "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN } });
+        const link = res.headers.link;
+        next = null;
+        if (link) {
+          const nextLink = link.split(",").find(s => s.includes('rel="next"'));
+          if (nextLink) next = nextLink.match(/<(.*?)>/)[1];
         }
-        return response.data.products;
+        return res.data.products;
       };
 
-      let products = await makeRequest(initialUrl);
-
-      while (products && products.length > 0) {
-        for (const product of products) {
-          productCount++;
-          const shouldProcess =
-            reprocess === "true" ||
-            !product.tags ||
-            !product.tags.includes(PROCESSED_TAG);
-          if (shouldProcess) await processProduct(product, true);
-          await new Promise(resolve => setTimeout(resolve, 500));
+      let products = await fetchProducts(baseUrl);
+      while (products?.length) {
+        for (const p of products) {
+          count++;
+          const should = reprocess === "true" || !p.tags || !p.tags.includes(PROCESSED_TAG);
+          if (should) await processProduct(p, true);
+          await new Promise(r => setTimeout(r, 400));
         }
-        if (nextPageInfo) products = await makeRequest(nextPageInfo);
+        if (next) products = await fetchProducts(next);
         else break;
       }
-
-      log("BATCH_COMPLETE", `✅ Batch done. ${productCount} products processed.`);
-    } catch (error) {
-      log("BATCH_ERROR", `❌ Batch update failed: ${error.message}`);
+      log("BATCH_COMPLETE", `✅ Batch done. ${count} products processed.`);
+    } catch (e) {
+      log("BATCH_ERROR", e.message, "❌");
+    } finally {
+      process.env.BATCH_MODE = "false";
     }
   })();
 });
 
-app.get("/", (_, res) =>
-  res.send(`🚀 eSelect AI Translator v7.8 is running!`)
-);
+app.get("/", (_, res) => res.send("🚀 eSelect AI Translator v7.9 is running!"));
 
-app.listen(PORT, () =>
-  log("SERVER_START", `Server running on port ${PORT}`, "🚀")
-);
+app.listen(PORT, () => log("SERVER_START", `Server running on port ${PORT}`, "🚀"));
