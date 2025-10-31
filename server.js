@@ -139,7 +139,7 @@ app.get("/batch-update", (req, res) => {
         for (const p of products) {
           const should = reprocess === "true" || !p.tags || !p.tags.includes(PROCESSED_TAG);
           if (should) await processProduct(p, true);
-          await new Promise(r => setTimeout(r, 500));
+          await new Promise(r => setTimeout(r, 700));
           count++;
         }
         const link = res.headers.link;
