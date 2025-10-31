@@ -4,7 +4,7 @@
  * إعداد: سالم السليمي | https://eselect.store
  * تطوير وتحسين: Gemini AI
  */
-
+import autotagRoute from "./routes/autotag.js";
 import express from "express";
 import axios from "axios";
 import bodyParser from "body-parser";
