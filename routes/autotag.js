@@ -1,32 +1,40 @@
-/**
- * eSelect AutoTag AI | v1.0.0
- * توليد تلقائي لكلمات Tags من اسم ووصف المنتج
- * إعداد: سالم السليمي | https://eselect.store
- */
-
 import express from "express";
-import { generateTags } from "../utils/generateTags.js";
-import { updateProductTags } from "../utils/shopifyAPI.js";
-
+import axios from "axios";
 const router = express.Router();
 
-router.post("/webhook/product-updated", async (req, res) => {
+const tagCooldown = new Map();
+
+router.post("/", async (req, res) => {
+  const { id, title, description } = req.body;
+  if (!id || !title) return res.status(400).send("Missing product data");
+
+  const now = Date.now();
+  if (tagCooldown.has(id) && now - tagCooldown.get(id) < 60000) {
+    console.log(`⏭️ Skipped AutoTag for ${id} (cooldown active)`);
+    return res.send("Skipped (cooldown)");
+  }
+  tagCooldown.set(id, now);
+
   try {
-    const product = req.body;
-    if (!product || !product.id) return res.status(400).send("invalid data");
+    const prompt = `Extract useful Arabic keywords separated by commas for product search:
+Title: "${title}"
+Description: "${description}"`;
 
-    const { title, body_html } = product;
-    const tags = await generateTags(title, body_html);
+    const ai = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      { model: "gpt-4o", messages: [{ role: "user", content: prompt }] },
+      { headers: { Authorization: \`Bearer \${process.env.OPENAI_API_KEY}\` } }
+    );
 
-    if (tags?.length) {
-      await updateProductTags(product.id, tags);
-      console.log(`✅ AutoTags added for product: ${title}`, tags);
-    }
+    const tags = ai.data.choices[0].message.content
+      .replace(/[\[\]\n\r0-9]+/g, "")
+      .replace(/\s*,\s*/g, ", ")
+      .trim();
 
-    res.status(200).send("ok");
+    res.send({ success: true, tags });
   } catch (err) {
-    console.error("❌ AutoTag Error:", err.message);
-    res.status(500).send("error");
+    console.error("Tag Generation Error:", err.message);
+    res.status(500).send("AI tag generation failed");
   }
 });
 
