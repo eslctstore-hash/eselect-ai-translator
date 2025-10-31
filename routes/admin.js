@@ -26,22 +26,28 @@ router.get("/", async (req, res) => {
   <body>
     <h1>لوحة التحكم - eSelect AI</h1>
     <button class="update" onclick="run('batch-update')">🔄 تحديث المنتجات</button>
-    <button class="reprocess" onclick="run('batch-update?reprocess=true')">🧠 إعادة توليد التاجات</button>
+    <button class="reprocess" onclick="run('batch-update', true)">🧠 إعادة توليد التاجات</button>
     <button class="logs" onclick="showLogs()">📊 عرض السجلات</button>
     <button class="info" onclick="getInfo()">ℹ️ حالة السيرفر</button>
     <pre id="output">جاهز...</pre>
+
     <script>
-      async function run(endpoint) {
+      const secret = "${process.env.BATCH_UPDATE_SECRET}";
+
+      async function run(endpoint, reprocess = false) {
         document.getElementById('output').textContent = "⏳ جاري التشغيل...";
-        const res = await fetch('/' + endpoint + '?secret=${process.env.BATCH_UPDATE_SECRET}');
+        const url = '/' + endpoint + '?secret=' + secret + (reprocess ? '&reprocess=true' : '');
+        const res = await fetch(url);
         const text = await res.text();
         document.getElementById('output').textContent = text;
       }
+
       async function showLogs() {
         const res = await fetch('/logs');
         const text = await res.text();
         document.getElementById('output').textContent = text;
       }
+
       async function getInfo() {
         const res = await fetch('/status');
         const json = await res.json();
