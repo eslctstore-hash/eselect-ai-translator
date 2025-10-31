@@ -15,6 +15,9 @@ dotenv.config();
 const app = express();
 app.use(bodyParser.json({ limit: "10mb" }));
 
+// ✅ ربط وحدة AutoTag
+app.use("/autotag", autotagRoute); 
+
 // =============== CONFIG ===============
 const {
   OPENAI_API_KEY,
