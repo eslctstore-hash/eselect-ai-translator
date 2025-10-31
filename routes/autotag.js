@@ -22,8 +22,13 @@ Description: "${description}"`;
 
     const ai = await axios.post(
       "https://api.openai.com/v1/chat/completions",
-      { model: "gpt-4o", messages: [{ role: "user", content: prompt }] },
-      { headers: { Authorization: \`Bearer \${process.env.OPENAI_API_KEY}\` } }
+      {
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.5,
+        max_tokens: 200
+      },
+      { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } }
     );
 
     const tags = ai.data.choices[0].message.content
